@@ -2,3 +2,4 @@
 .venv
 *.json
 *.session
+*__pycache__
