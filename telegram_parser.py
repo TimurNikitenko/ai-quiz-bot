@@ -9,9 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class TGParser:
-    def __init__(self, api_id: int, api_hash: str, session_name: str = "event_session"):
-        proxy_tuple = ("socks5", "xray-client", 1080)
-
+    def __init__(self, api_id: int, api_hash: str, proxy_host: str, proxy_port: int, session_name: str = "event_session"):
+        proxy_tuple = ("socks5", proxy_host, proxy_port)
         self.client = TelegramClient(
             session_name,
             api_id,
@@ -43,7 +42,7 @@ class TGParser:
         posts = []
         total_msgs = 0
 
-        async for message in self.client.iter_messages(channel_username, limit=30):
+        async for message in self.client.iter_messages(channel_username, limit=10):
             total_msgs += 1
 
             text_raw = message.text or ""

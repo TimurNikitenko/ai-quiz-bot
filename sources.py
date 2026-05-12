@@ -1,19 +1,22 @@
 TG_SOURCES = [
-'@pro_ai_news'
-'@seeallochnaya',
-'@lovedeathtransformers',
-'@addmeto',
-'@tips_ai',
-'@maxvotek',
-'@kantor_ai',
-'@mountainai_info'
-'@cryptovalerii',
-'@AIexTime'
-'@senior_augur',
-'@data_secrets',
+'neuro_channel',
+'ml_product',
+'pro_ai_news',  
+'ai_newz',
+'data_secrets'
 ]
 
 """
+'seeallochnaya',
+'lovedeathtransformers',
+'addmeto',
+'tips_ai',
+'maxvotek',
+'kantor_ai',
+'mountainai_info',
+'cryptovalerii',
+'AIexTime',
+'senior_augur',
 @ml4value
 @cryptoEssay
 @AGI_and_RL
