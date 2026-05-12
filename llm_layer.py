@@ -21,7 +21,7 @@ from openai import (
 )
 
 import datetime
-from prompts import post_prompt_template
+from prompts import post_prompt_template, digest_assembly_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +74,10 @@ class MessageExtractor:
             working_key = next(self.keys_iterator)
             model_name = self.model_names[0]
 
-            api_kwargs = {
-                "model": model_name,
-                "messages": messages,
-                "temperature": self.temperature,
-                "max_tokens": 4096,
-                "response_format": {
+            response_format = None
+
+            if schema:
+                response_format = {
                     "type": "json_schema",
                     "json_schema": {
                         "name": "digest_quize",
@@ -87,6 +85,13 @@ class MessageExtractor:
                         "schema": schema,
                     },
                 }
+
+            api_kwargs = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": 4096,
+                "response_format": response_format
             }
 
             with httpx.Client(proxy=self.proxy) as http_client:
@@ -118,7 +123,8 @@ class MessageExtractor:
                 res = "".join(
                     ch for ch in res if ord(ch) >= 32 or ch in "\n\r\t"
                 )
-                res = json.loads(res)
+                if schema:
+                    res = json.loads(res)
 
                 self.temperature = 0.0
                 tokens = (
@@ -189,7 +195,7 @@ class MessageExtractor:
  
 
     def build_message_extraction_prompt(
-        self, text: str, url: str = "", reference_date=None
+        self, text: str, url: str = "", reference_date=None, digest=False
     ) -> str:
         if isinstance(reference_date, datetime.datetime):
             ref_str = reference_date.strftime("%Y-%m-%d (%A)")
@@ -198,9 +204,12 @@ class MessageExtractor:
         else:
             ref_str = datetime.datetime.now().strftime("%Y-%m-%d (%A)")
 
-        prompt = post_prompt_template.format(
-            post_text=text
-            )
+        if not digest:
+            prompt = post_prompt_template.format(
+                post_text=text
+                )
+        else: 
+            prompt = digest_assembly_prompt.format(raw_facts=text)
         return prompt
 
     def _deep_clean(self, data: Any) -> Any:
