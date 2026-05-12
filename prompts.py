@@ -1,4 +1,4 @@
-prompt_template = """
+post_prompt_template = """
 Ты — эксперт-методист по созданию образовательных IT-квизов. Твоя задача — проанализировать текст о новых событиях в мире ИИ и сформировать данные для квиза в строгом формате JSON.
 
 ШАГИ ВЫПОЛНЕНИЯ:
@@ -33,3 +33,53 @@ prompt_template = """
 
 Твой ответ:
 """
+
+post_schema = {
+    "type": "object",
+    "properties": {
+        "analysis": {
+            "type": "string",
+            "description": "Пошаговое рассуждение. Сначала проанализируй текст: определи, содержит ли он познавательную информацию по теме ИИ, найди маркеры актуальности, оцени целевую аудиторию и обоснуй выводы перед заполнением полей.",
+        },
+        "is_ad_or_trash": {
+            "type": "boolean",
+            "description": "false, если пост содержит познавательную информацию по теме ИИ, иначе true",
+        },
+        "facts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Список из 1-3 ключевых фактов из текста.",
+        },
+        "questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Текст вопроса"
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 4, 
+                        "maxItems": 4
+                    },
+                    "correct_answer": {
+                        "type": "string",
+                        "description": "Правильный ответ (должен точно совпадать с одним из вариантов в options)"
+                    }
+                },
+                "additionalProperties": False,
+                "required": ["question", "options", "correct_answer"],
+            },
+        },
+    },
+    "required": [
+        "analysis",
+        "is_ad_or_trash",
+        "facts",
+        "questions",
+    ],
+    "additionalProperties": False,
+}

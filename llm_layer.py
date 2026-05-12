@@ -21,7 +21,7 @@ from openai import (
 )
 
 import datetime
-from .prompts import prompt_template
+from .prompts import post_prompt_template
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ class MessageExtractor:
         else:
             ref_str = datetime.datetime.now().strftime("%Y-%m-%d (%A)")
 
-        prompt = prompt_template.format(
+        prompt = post_prompt_template.format(
             post_text=text
             )
         return prompt
