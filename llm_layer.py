@@ -21,7 +21,7 @@ from openai import (
 )
 
 import datetime
-from .prompts import post_prompt_template
+from prompts import post_prompt_template
 
 logger = logging.getLogger(__name__)
 
