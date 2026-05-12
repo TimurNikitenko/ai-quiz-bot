@@ -48,9 +48,6 @@ class MessageExtractor:
         self.proxy = proxy
         self.limit = limit
         self.temperature = temperature
-
-    def get_working_model(self, api_key: str) -> str:
-        return self.model_names[0] if self.model_names else "unknown"
     
     @retry(
         stop=stop_after_attempt(3),
@@ -74,10 +71,8 @@ class MessageExtractor:
             raise ValueError(f"Некорректная схема: {e}") from e
 
         try:
-            force = not json_failed
-            working_key = self.keys[0] if force else next(self.keys_iterator)
-            json_failed = False
-            model_name = self.get_working_model(working_key)
+            working_key = next(self.keys_iterator)
+            model_name = self.model_names[0]
 
             api_kwargs = {
                 "model": model_name,
@@ -124,7 +119,6 @@ class MessageExtractor:
                     ch for ch in res if ord(ch) >= 32 or ch in "\n\r\t"
                 )
                 res = json.loads(res)
-                json_failed = False
 
                 self.temperature = 0.0
                 tokens = (
@@ -143,7 +137,6 @@ class MessageExtractor:
                 return res, tokens
             except json.JSONDecodeError as e:
                 logger.info("Ошибка парсинга JSON, меняем модель")
-                json_failed = True
 
         except ORBadRequestError as e:
             error_msg = str(e).lower()
@@ -165,7 +158,7 @@ class MessageExtractor:
                     "llm.bad_request_reason": reason,
                 },
             )
-            return None
+            raise
 
         except ORRateLimitError:
             logger.warning(
@@ -206,7 +199,7 @@ class MessageExtractor:
             ref_str = datetime.datetime.now().strftime("%Y-%m-%d (%A)")
 
         prompt = prompt_template.format(
-            text=text
+            post_text=text
             )
         return prompt
 
