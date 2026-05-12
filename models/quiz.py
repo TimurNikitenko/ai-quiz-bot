@@ -10,7 +10,9 @@ class Quiz(Base, TimeStampMixin):
     __tablename__ = "quizzes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    digest_id: Mapped[int] = mapped_column(ForeignKey("digests.id"), nullable=False, unique=True)
+    digest_id: Mapped[int] = mapped_column(
+        ForeignKey("digests.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
     questions: Mapped[list] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )

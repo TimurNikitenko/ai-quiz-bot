@@ -10,7 +10,9 @@ class Post(Base, TimeStampMixin):
     __tablename__ = "posts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    digest_id: Mapped[int] = mapped_column(ForeignKey("digests.id"), nullable=True)
+    digest_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("digests.id", ondelete="SET NULL"), nullable=True
+    )
     link: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     post_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     is_ad_or_trash: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
