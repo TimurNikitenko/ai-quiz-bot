@@ -82,7 +82,7 @@ async def publish_latest_digest():
                         type="quiz", # Режим викторины
                         correct_option_id=correct_id,
                         is_anonymous=True,
-                        explanation=f"Обьяснение: {q['explanation']}" 
+                        explanation=q.get("explanation", "Подробности в тексте дайджеста.")[:200]
                     )
                     await asyncio.sleep(0.5) 
                 

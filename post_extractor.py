@@ -174,21 +174,38 @@ class DigestPipeline:
 
         logger.info(f"Собираем дайджест из {len(ready_posts)} постов.")
 
-        # 2. Собираем факты и вопросы
         all_facts = []
-        all_questions = []
+        easy_medium_questions = [] 
+        hard_questions = []
         total_tokens = 0
 
         for post in ready_posts:
-            all_facts.extend(post.facts)
-            all_questions.extend(post.questions)
+            for fact in post.facts:
+                fact_with_link = f"{fact} [Источник]({post.link})"
+                all_facts.append(fact_with_link)
+                
+            for question in post.questions:
+                if question.get("difficulty_level") == "hard":
+                    hard_questions.append(question)
+                else:
+                    easy_medium_questions.append(question)
+
             if post.tokens:
                 total_tokens += post.tokens
 
-        selected_questions = random.sample(
-            all_questions, 
-            min(len(all_questions), max_questions)
-        )
+        selected_questions = []
+
+        if hard_questions:
+            selected_questions.append(random.choice(hard_questions))
+
+        needed = max_questions - len(selected_questions)
+
+        if easy_medium_questions:
+            selected_questions.extend(
+                random.sample(easy_medium_questions, min(len(easy_medium_questions), needed))
+            )
+
+        random.shuffle(selected_questions)       
 
         try:
  
