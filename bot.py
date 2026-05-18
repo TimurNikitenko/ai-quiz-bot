@@ -82,9 +82,9 @@ async def publish_latest_digest():
                         type="quiz", # Режим викторины
                         correct_option_id=correct_id,
                         is_anonymous=True,
-                     #   explanation=f"Сложность: {q.get('difficulty_level', 'medium')}" #
+                        explanation=f"Обьяснение: {q['explanation']}" 
                     )
-                    await asyncio.sleep(0.5) # Пауза, чтобы ТГ не забанил за спам
+                    await asyncio.sleep(0.5) 
                 
                 logger.info(f"Квиз для дайджеста #{digest.id} отправлен.")
 
