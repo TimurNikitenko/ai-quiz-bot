@@ -1,6 +1,8 @@
 import logging
 import hashlib
 import asyncio
+import random
+
 from typing import Optional
 from datetime import datetime
 
@@ -183,7 +185,6 @@ class DigestPipeline:
             if post.tokens:
                 total_tokens += post.tokens
 
-        import random
         selected_questions = random.sample(
             all_questions, 
             min(len(all_questions), max_questions)

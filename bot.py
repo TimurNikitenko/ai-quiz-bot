@@ -1,4 +1,5 @@
 import os
+import random
 import asyncio
 import logging
 from aiogram import Bot
@@ -77,11 +78,11 @@ async def publish_latest_digest():
                     await bot.send_poll(
                         chat_id=channel_id,
                         question=q["question"],
-                        options=q["options"],
+                        options=random.shuffle(q["options"]),
                         type="quiz", # Режим викторины
                         correct_option_id=correct_id,
                         is_anonymous=True,
-                        explanation=f"Сложность: {q.get('difficulty_level', 'medium')}" #
+                     #   explanation=f"Сложность: {q.get('difficulty_level', 'medium')}" #
                     )
                     await asyncio.sleep(0.5) # Пауза, чтобы ТГ не забанил за спам
                 
