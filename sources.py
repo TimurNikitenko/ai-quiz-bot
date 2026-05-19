@@ -1,6 +1,6 @@
 TG_SOURCES = [
 'tips_ai',
-'ai_machinelearning_big_data'
+'ai_machinelearning_big_data' # также есть дайджесты    
 'neuro_channel',
 'ml_product',
 'pro_ai_news',  
