@@ -88,8 +88,6 @@ async def publish_latest_digest():
                     )
 
                     polls_data[poll_message.poll.id] = correct_id
-
-
                     await asyncio.sleep(0.5) 
                 
                 quiz.poll_info = polls_data
