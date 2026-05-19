@@ -1,4 +1,6 @@
 TG_SOURCES = [
+'tips_ai',
+'ai_machinelearning_big_data'
 'neuro_channel',
 'ml_product',
 'pro_ai_news',  
@@ -7,6 +9,7 @@ TG_SOURCES = [
 ]
 
 """
+'https://t.me/ai_link_vibe' # нейродайджест
 'seeallochnaya',
 'lovedeathtransformers',
 'addmeto',
