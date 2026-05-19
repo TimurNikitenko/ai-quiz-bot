@@ -16,6 +16,7 @@ class Quiz(Base, TimeStampMixin):
     questions: Mapped[list] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )
+    poll_info: Mapped[dict] = mapped_column(JSONB, nullable=True, default=dict)
     digest = relationship("Digest", back_populates="quiz")
 
 

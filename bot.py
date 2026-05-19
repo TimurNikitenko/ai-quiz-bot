@@ -5,7 +5,7 @@ import logging
 from aiogram import Bot
 from aiogram.types import Poll
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import select
+from sqlalchemy import select, update, set
 from models import Digest, Quiz 
 from dotenv import load_dotenv
 
@@ -65,6 +65,8 @@ async def publish_latest_digest():
             stmt_quiz = select(Quiz).where(Quiz.digest_id == digest.id)
             res_quiz = await session.execute(stmt_quiz)
             quiz = res_quiz.scalar()
+
+            polls_data = {}
             # 3. Отправляем вопросы квиза как нативные опросы
             if quiz and quiz.questions:
                 for q in quiz.questions:
@@ -75,7 +77,7 @@ async def publish_latest_digest():
                         logger.error(f"Правильный ответ не найден в опциях для вопроса: {q['question']}")
                         continue
 
-                    await bot.send_poll(
+                    poll_message = await bot.send_poll(
                         chat_id=channel_id,
                         question=q["question"],
                         options=random.shuffle(q["options"]),
@@ -84,8 +86,14 @@ async def publish_latest_digest():
                         is_anonymous=True,
                         explanation=q.get("explanation", "Подробности в тексте дайджеста.")[:200]
                     )
+
+                    polls_data[poll_message.poll.id] = correct_id
+
+
                     await asyncio.sleep(0.5) 
                 
+                quiz.poll_info = polls_data
+                await session.commit()
                 logger.info(f"Квиз для дайджеста #{digest.id} отправлен.")
 
     except Exception as e:
