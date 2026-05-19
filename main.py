@@ -34,12 +34,15 @@ async def main():
     proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
     proxy_port = int(os.getenv("PROXY_PORT", 1080))
 
-    db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@localhost:5432/{db_name}"
+    db_host = os.getenv("DB_HOST", "localhost")
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+
+    db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
     engine = create_async_engine(db_url, echo=False)
     AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
     redis_client = redis.Redis(
-        host="localhost", 
+        host=redis_host, 
         port=6379, 
         password=redis_pass, 
         decode_responses=True 

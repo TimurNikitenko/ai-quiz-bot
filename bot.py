@@ -30,7 +30,9 @@ async def publish_latest_digest():
 
         # Инициализация БД
         db_user, db_pass, db_name = os.getenv("DB_USER"), os.getenv("DB_PASSWORD"), os.getenv("DB_NAME")
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@localhost:5432/{db_name}"
+        db_host = os.getenv("DB_HOST", "localhost")
+        
+        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
         engine = create_async_engine(db_url)
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -70,24 +72,24 @@ async def publish_latest_digest():
             # 3. Отправляем вопросы квиза как нативные опросы
             if quiz and quiz.questions:
                 for q in quiz.questions:
-                    # Находим индекс правильного ответа
-                    try:
-                        correct_id = q["options"].index(q["correct_answer"])
-                    except ValueError:
-                        logger.error(f"Правильный ответ не найден в опциях для вопроса: {q['question']}")
-                        continue
+                    correct_text = q["correct_answer"]
+                    
+                    shuffled_options = q["options"].copy()
+                    random.shuffle(shuffled_options)
+                    
+                    new_correct_id = shuffled_options.index(correct_text)
 
                     poll_message = await bot.send_poll(
                         chat_id=channel_id,
                         question=q["question"],
-                        options=random.shuffle(q["options"]),
-                        type="quiz", # Режим викторины
-                        correct_option_id=correct_id,
-                        is_anonymous=True,
+                        options=shuffled_options, 
+                        type="quiz",
+                        correct_option_id=new_correct_id,
+                        is_anonymous=False, 
                         explanation=q.get("explanation", "Подробности в тексте дайджеста.")[:200]
                     )
 
-                    polls_data[poll_message.poll.id] = correct_id
+                    polls_data[poll_message.poll.id] = new_correct_id
                     await asyncio.sleep(0.5) 
                 
                 quiz.poll_info = polls_data
