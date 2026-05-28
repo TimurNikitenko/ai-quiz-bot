@@ -72,9 +72,9 @@ async def main():
 
         logger.info("--- СТАРТ ЦИКЛА ---")
         
-        #await pipeline.run_parsing_job()
+        await pipeline.run_parsing_job()
 
-        #await pipeline.run_llm_processing_job(schema=post_schema)
+        await pipeline.run_llm_processing_job(schema=post_schema)
 
 
         await pipeline.run_digest_assembly_job()

@@ -5,7 +5,7 @@ import logging
 from aiogram import Bot
 from aiogram.types import Poll
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import select, update, set
+from sqlalchemy import select
 from models import Digest, Quiz 
 from dotenv import load_dotenv
 

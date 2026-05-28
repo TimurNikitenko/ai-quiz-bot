@@ -42,7 +42,7 @@ class TGParser:
         posts = []
         total_msgs = 0
 
-        async for message in self.client.iter_messages(channel_username, limit=10):
+        async for message in self.client.iter_messages(channel_username, limit=5):
             total_msgs += 1
 
             text_raw = message.text or ""

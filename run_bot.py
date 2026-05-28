@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from tg_bot import DbSessionMiddleware
-from tg_bot import polls_router
+from tg_bot.middlewares.db import DbSessionMiddleware
+from tg_bot.handlers import polls_router
 
 async def main():
     load_dotenv()

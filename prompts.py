@@ -90,7 +90,7 @@ post_schema = {
                     }
                 },
                 "additionalProperties": False,
-                "required": ["question", "options", "correct_answer", "difficulty_level"],
+                "required": ["question", "options", "correct_answer", "difficulty_level", "explanation"],
             },
         },
     },
@@ -99,7 +99,6 @@ post_schema = {
         "is_ad_or_trash",
         "facts",
         "questions",
-        "explanation"
     ],
     "additionalProperties": False,
 }

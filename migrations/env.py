@@ -11,6 +11,9 @@ from models.base import Base
 import models.post  
 import models.digest
 import models.quiz
+import models.user
+import models.user_answers
+import models.poll_mapping
 
 from alembic import context
 
@@ -23,8 +26,9 @@ load_dotenv()
 db_user = os.getenv("DB_USER")
 db_password = os.getenv("DB_PASSWORD")
 db_name = os.getenv("DB_NAME")
+db_host = os.getenv("DB_HOST", "localhost")
 
-db_url = f"postgresql+asyncpg://{db_user}:{db_password}@localhost:5432/{db_name}"
+db_url = f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:5432/{db_name}"
 
 # 3. Переопределяем настройку из alembic.ini на лету!
 config.set_main_option("sqlalchemy.url", db_url)
