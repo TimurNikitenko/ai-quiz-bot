@@ -61,25 +61,25 @@ async def main():
         proxy=None
     )
 
-    async with AsyncSessionLocal() as session:
-        pipeline = DigestPipeline(
-            tg_sources=TG_SOURCES,
-            tg_parser=tg_parser,
-            extractor=extractor,
-            db_session=session,
-            redis_client=redis_client
-        )
+    interval = int(os.getenv("PARSING_INTERVAL_SECONDS", 14400))
+    while True:
+        async with AsyncSessionLocal() as session:
+            pipeline = DigestPipeline(
+                tg_sources=TG_SOURCES,
+                tg_parser=tg_parser,
+                extractor=extractor,
+                db_session=session,
+                redis_client=redis_client
+            )
 
-        logger.info("--- СТАРТ ЦИКЛА ---")
+            logger.info("--- СТАРТ ЦИКЛА ---")
+            await pipeline.run_parsing_job()
+            await pipeline.run_llm_processing_job(schema=post_schema)
+            await pipeline.run_digest_assembly_job()
+            logger.info("--- ЦИКЛ ЗАВЕРШЕН ---")
         
-        await pipeline.run_parsing_job()
-
-        await pipeline.run_llm_processing_job(schema=post_schema)
-
-
-        await pipeline.run_digest_assembly_job()
-    
-        logger.info("--- ЦИКЛ ЗАВЕРШЕН ---")
+        logger.info(f"Ожидание следующего запуска ({interval} секунд)...")
+        await asyncio.sleep(interval)
 
 if __name__ == "__main__":
     asyncio.run(main())

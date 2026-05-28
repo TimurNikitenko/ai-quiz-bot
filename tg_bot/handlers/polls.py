@@ -1,15 +1,15 @@
 import logging
-from aiogram import Router
+from aiogram import Router, Bot
 from aiogram.types import PollAnswer
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from models import User, UserAnswer, Quiz 
+from models import User, UserAnswer, Quiz, PollMapping
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 @router.poll_answer()
-async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession):
+async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot: Bot):
     # 1. Извлекаем данные из ответа Telegram
     tg_user_id = poll_answer.user.id
     username = poll_answer.user.username
@@ -20,8 +20,8 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession):
         return
     selected_option = poll_answer.option_ids[0]
 
-    # 2. Получаем или создаем пользователя (User)
-    user_stmt = select(User).where(User.telegram_id == tg_user_id)
+    # 2. Получаем или создаем пользователя (User) с блокировкой строки для предотвращения race conditions
+    user_stmt = select(User).where(User.telegram_id == tg_user_id).with_for_update()
     user = (await session.execute(user_stmt)).scalar_one_or_none()
     
     if not user:
@@ -29,12 +29,11 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession):
         session.add(user)
         await session.flush() # Делаем flush, чтобы получить user.id для дальнейших связей
 
-    # 3. Ищем Quiz, которому принадлежит этот опрос
-    # В PostgreSQL JSONB оператор has_key позволяет мгновенно найти нужную запись
-    quiz_stmt = select(Quiz).where(Quiz.poll_info.has_key(poll_id))
-    quiz = (await session.execute(quiz_stmt)).scalar_one_or_none()
+    # 3. Ищем PollMapping, которому принадлежит этот опрос
+    mapping_stmt = select(PollMapping).where(PollMapping.poll_id == poll_id)
+    mapping = (await session.execute(mapping_stmt)).scalar_one_or_none()
 
-    if not quiz:
+    if not mapping:
         logger.warning(f"Пришел ответ на неизвестный poll_id: {poll_id}")
         return
 
@@ -48,13 +47,12 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession):
         return # Уже обработали
 
     # 5. Проверяем правильность ответа
-    correct_option_id = quiz.poll_info[poll_id]
-    is_correct = (selected_option == correct_option_id)
+    is_correct = (selected_option == mapping.correct_option_id)
 
     # 6. Сохраняем ответ в историю
     new_answer = UserAnswer(
         user_id=user.id,
-        quiz_id=quiz.id,
+        quiz_id=mapping.quiz_id,
         telegram_poll_id=poll_id,
         is_correct=is_correct
     )
@@ -63,10 +61,45 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession):
     # 7. Начисляем глобальный балл, если ответ верный
     if is_correct:
         user.global_score += 1
-        # По желанию: здесь же можно обновлять username, если он сменился у старого юзера
+        # Обновляем username, если он сменился
         if user.username != username:
             user.username = username
 
     # Фиксируем все изменения в БД (создание юзера, ответ, баллы) одной транзакцией
     await session.commit()
     logger.info(f"User {username} answered poll {poll_id}. Correct: {is_correct}. Score: {user.global_score}")
+
+    # 8. Проверяем завершение квиза
+    # Получаем исходный квиз, чтобы узнать общее число вопросов
+    quiz_stmt = select(Quiz).where(Quiz.id == mapping.quiz_id)
+    quiz = (await session.execute(quiz_stmt)).scalar_one_or_none()
+    
+    if quiz and quiz.questions:
+        total_questions = len(quiz.questions)
+        
+        # Считаем количество ответов пользователя на этот квиз
+        answers_count_stmt = select(func.count(UserAnswer.id)).where(
+            UserAnswer.user_id == user.id,
+            UserAnswer.quiz_id == quiz.id
+        )
+        answered_count = (await session.execute(answers_count_stmt)).scalar() or 0
+        
+        if answered_count == total_questions:
+            # Квиз полностью пройден, получаем все ответы пользователя по этому квизу
+            all_answers_stmt = select(UserAnswer).where(
+                UserAnswer.user_id == user.id,
+                UserAnswer.quiz_id == quiz.id
+            )
+            all_answers = (await session.execute(all_answers_stmt)).scalars().all()
+            correct_count = sum(1 for ans in all_answers if ans.is_correct)
+            
+            try:
+                await bot.send_message(
+                    chat_id=tg_user_id,
+                    text=f"🎉 *Вы прошли квиз!*\n\n"
+                         f"📊 Результат: *{correct_count}* из *{total_questions}* правильных ответов.\n"
+                         f"🏆 Ваш общий рейтинг: *{user.global_score}* баллов.",
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения о завершении квиза юзеру {tg_user_id}: {e}")

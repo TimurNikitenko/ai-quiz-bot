@@ -3,11 +3,14 @@ import random
 import asyncio
 import logging
 from aiogram import Bot
-from aiogram.types import Poll
+from aiogram.types import Poll, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
 from models import Digest, Quiz 
 from dotenv import load_dotenv
+import re
+import html
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,30 @@ def split_text(text: str, limit: int = 4000):
         text = text[split_at:].lstrip()
     chunks.append(text)
     return chunks
+
+
+def markdown_to_html(text: str) -> str:
+    # Экранируем сырые HTML символы, чтобы не ломать парсинг Telegram
+    text = html.escape(text, quote=False)
+    
+    # Заголовки (### Текст) -> Жирный текст
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    
+    # Жирный (**текст**) -> <b>текст</b>
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    
+    # Ссылки ([текст](ссылка)) -> <a href="ссылка">текст</a>
+    def replace_link(match):
+        return f'<a href="{html.unescape(match.group(2))}">{match.group(1)}</a>'
+    text = re.sub(r'\[(.*?)\]\((.*?)\)', replace_link, text)
+    
+    # Курсив (*текст*) -> <i>текст</i>
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    
+    # Код (`код`) -> <code>код</code>
+    text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
+    
+    return text
 
 async def publish_latest_digest():
     load_dotenv()
@@ -37,26 +64,42 @@ async def publish_latest_digest():
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
         async with AsyncSessionLocal() as session:
-            # 1. Получаем последний дайджест и его квиз
-            stmt = (
-                select(Digest)
-                .order_by(Digest.created_at.desc())
-                .limit(1)
-            )
+            # 1. Получаем ID дайджеста из аргументов командной строки, если передан
+            digest_id = None
+            if len(sys.argv) > 1:
+                try:
+                    digest_id = int(sys.argv[1])
+                except ValueError:
+                    logger.error("Неверный ID дайджеста (должен быть числом).")
+                    return
+
+            if digest_id:
+                stmt = select(Digest).where(Digest.id == digest_id)
+            else:
+                stmt = (
+                    select(Digest)
+                    .order_by(Digest.created_at.desc())
+                    .limit(1)
+                )
             result = await session.execute(stmt)
             digest = result.scalar()
 
             if not digest:
-                logger.error("Дайджесты не найдены в базе.")
+                if digest_id:
+                    logger.error(f"Дайджест с ID #{digest_id} не найден в базе.")
+                else:
+                    logger.error("Дайджесты не найдены в базе.")
                 return
 
             content_chunks = split_text(digest.content)
     
             for i, chunk in enumerate(content_chunks):
+                html_chunk = markdown_to_html(chunk)
                 await bot.send_message(
                     chat_id=channel_id,
-                    text=chunk,
-                    parse_mode="Markdown"
+                    text=html_chunk,
+                    parse_mode="HTML",
+                    link_preview_options=LinkPreviewOptions(is_disabled=True)
                 )
                 if len(content_chunks) > 1:
                     await asyncio.sleep(0.5)
@@ -68,33 +111,28 @@ async def publish_latest_digest():
             res_quiz = await session.execute(stmt_quiz)
             quiz = res_quiz.scalar()
 
-            polls_data = {}
-            # 3. Отправляем вопросы квиза как нативные опросы
             if quiz and quiz.questions:
-                for q in quiz.questions:
-                    correct_text = q["correct_answer"]
-                    
-                    shuffled_options = q["options"].copy()
-                    random.shuffle(shuffled_options)
-                    
-                    new_correct_id = shuffled_options.index(correct_text)
-
-                    poll_message = await bot.send_poll(
-                        chat_id=channel_id,
-                        question=q["question"],
-                        options=shuffled_options, 
-                        type="quiz",
-                        correct_option_id=new_correct_id,
-                        is_anonymous=False, 
-                        explanation=q.get("explanation", "Подробности в тексте дайджеста.")[:200]
-                    )
-
-                    polls_data[poll_message.poll.id] = new_correct_id
-                    await asyncio.sleep(0.5) 
+                bot_info = await bot.get_me()
+                quiz_link = f"https://t.me/{bot_info.username}?start=quiz_{digest.id}"
                 
-                quiz.poll_info = polls_data
-                await session.commit()
-                logger.info(f"Квиз для дайджеста #{digest.id} отправлен.")
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🧠 Пройти квиз",
+                                url=quiz_link
+                            )
+                        ]
+                    ]
+                )
+                
+                await bot.send_message(
+                    chat_id=channel_id,
+                    text="📚 *Пройдите квиз по материалам дайджеста!*\nПроверьте свои знания и заработайте баллы.",
+                    reply_markup=keyboard,
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Ссылка на квиз для дайджеста #{digest.id} отправлена.")
 
     except Exception as e:
         logger.error(f"Ошибка при публикации: {e}")

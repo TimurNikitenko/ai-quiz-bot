@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from tg_bot.middlewares.db import DbSessionMiddleware
-from tg_bot.handlers import polls_router
+from tg_bot.handlers import polls_router, quiz_router
 
 async def main():
     load_dotenv()
@@ -30,8 +30,9 @@ async def main():
     # Подключаем миддлварь
     dp.update.middleware(DbSessionMiddleware(session_pool))
     
-    # Подключаем роутер с хэндлером
+    # Подключаем роутеры
     dp.include_router(polls_router)
+    dp.include_router(quiz_router)
 
     logger.info("Бот запущен и готов ловить ответы!")
     # Запускаем поллинг (бот работает бесконечно)

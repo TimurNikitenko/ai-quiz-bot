@@ -54,6 +54,7 @@ services:
     environment:
       - DB_HOST=db  
       - REDIS_HOST=redis
+      - PROXY_HOST=xray-client
 
   digest_pipeline:
     build: .
@@ -70,6 +71,7 @@ services:
     environment:
       - DB_HOST=db  
       - REDIS_HOST=redis
+      - PROXY_HOST=xray-client
     volumes:
       - .:/app
 
