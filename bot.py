@@ -7,7 +7,7 @@ from aiogram import Bot
 from aiogram.types import Poll, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
-from models import Digest, Quiz 
+from models import Digest, Quiz, PublishedDigest
 from dotenv import load_dotenv
 import re
 import html
@@ -67,15 +67,28 @@ async def publish_digest_by_id(digest_id: Optional[int] = None):
         async with AsyncSessionLocal() as session:
             if digest_id:
                 stmt = select(Digest).where(Digest.id == digest_id)
+                result = await session.execute(stmt)
+                digest = result.scalar()
+                
+                if digest:
+                    pub_stmt = select(PublishedDigest).where(
+                        PublishedDigest.digest_id == digest.id,
+                        PublishedDigest.chat_id == str(channel_id)
+                    )
+                    existing_pub = (await session.execute(pub_stmt)).scalar()
+                    if existing_pub:
+                        logger.info(f"Дайджест #{digest.id} уже был опубликован в канале {channel_id}. Пропускаем.")
+                        return
             else:
                 stmt = (
                     select(Digest)
-                    .where(Digest.is_published == False)
+                    .outerjoin(PublishedDigest, (Digest.id == PublishedDigest.digest_id) & (PublishedDigest.chat_id == str(channel_id)))
+                    .where(PublishedDigest.id.is_(None))
                     .order_by(Digest.created_at.desc())
                     .limit(1)
                 )
-            result = await session.execute(stmt)
-            digest = result.scalar()
+                result = await session.execute(stmt)
+                digest = result.scalar()
 
             if not digest:
                 if digest_id:
@@ -126,10 +139,14 @@ async def publish_digest_by_id(digest_id: Optional[int] = None):
                 )
                 logger.info(f"Ссылка на квиз для дайджеста #{digest.id} отправлена.")
 
-            # Помечаем дайджест как опубликованный в БД
+            # Помечаем дайджест как опубликованный в БД для конкретного канала
+            pub_record = PublishedDigest(digest_id=digest.id, chat_id=str(channel_id))
+            session.add(pub_record)
+            
+            # Помечаем также общий флаг
             digest.is_published = True
             await session.commit()
-            logger.info(f"Дайджест #{digest.id} успешно помечен как опубликованный в БД.")
+            logger.info(f"Дайджест #{digest.id} успешно помечен как опубликованный в БД для канала {channel_id}.")
 
     except Exception as e:
         logger.error(f"Ошибка при публикации: {e}")

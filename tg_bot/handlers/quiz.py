@@ -11,6 +11,11 @@ from models import User, Quiz, UserAnswer, PollMapping
 router = Router()
 logger = logging.getLogger(__name__)
 
+def clean_poll_text(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("**", "").replace("*", "").replace("_", "").replace("`", "")
+
 @router.message(Command("start"))
 async def handle_start(message: Message, command: CommandObject, session: AsyncSession, bot: Bot):
     tg_user_id = message.from_user.id
@@ -84,19 +89,24 @@ async def handle_start(message: Message, command: CommandObject, session: AsyncS
         return
 
     for i, q in enumerate(quiz.questions):
-        correct_text = q["correct_answer"]
-        shuffled_options = q["options"].copy()
+        question_text = clean_poll_text(q["question"])
+        correct_text = clean_poll_text(q["correct_answer"])
+        shuffled_options = [clean_poll_text(opt) for opt in q["options"]]
         random.shuffle(shuffled_options)
         new_correct_id = shuffled_options.index(correct_text)
 
+        raw_explanation = q.get("explanation", "Подробности в тексте дайджеста.")
+        cleaned_explanation = clean_poll_text(raw_explanation)
+        explanation_text = f"Объяснение: {cleaned_explanation}"[:200]
+
         poll_message = await bot.send_poll(
             chat_id=tg_user_id,
-            question=q["question"],
+            question=question_text,
             options=shuffled_options,
             type="quiz",
             correct_option_id=new_correct_id,
             is_anonymous=False,
-            explanation=q.get("explanation", "Подробности в тексте дайджеста.")[:200]
+            explanation=explanation_text
         )
 
         # Store poll mapping
