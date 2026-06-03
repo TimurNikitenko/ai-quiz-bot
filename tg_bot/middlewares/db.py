@@ -14,6 +14,9 @@ class DbSessionMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
+        import logging
+        logger = logging.getLogger("DbSessionMiddleware")
+        logger.info(f"Incoming event: {type(event)} -> {event}")
         async with self.session_pool() as session:
             data["session"] = session 
             return await handler(event, data)

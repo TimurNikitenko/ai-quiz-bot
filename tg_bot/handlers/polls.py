@@ -37,6 +37,50 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
         logger.warning(f"Пришел ответ на неизвестный poll_id: {poll_id}")
         return
 
+    # Обработка ответов на работу над ошибками (/review)
+    if mapping.original_user_answer_id is not None:
+        existing_answer_stmt = select(UserAnswer).where(
+            UserAnswer.telegram_poll_id == poll_id,
+            UserAnswer.user_id == user.id
+        )
+        if (await session.execute(existing_answer_stmt)).scalar_one_or_none():
+            return
+
+        is_correct = (selected_option == mapping.correct_option_id)
+        
+        # Сохраняем временную запись ответа, чтобы избежать повторного прохождения этого же ревью-опроса
+        new_answer = UserAnswer(
+            user_id=user.id,
+            quiz_id=mapping.quiz_id,
+            telegram_poll_id=poll_id,
+            is_correct=is_correct
+        )
+        session.add(new_answer)
+
+        if is_correct:
+            # Обновляем оригинальный неверный ответ на верный
+            orig_stmt = select(UserAnswer).where(UserAnswer.id == mapping.original_user_answer_id)
+            orig_answer = (await session.execute(orig_stmt)).scalar_one_or_none()
+            if orig_answer:
+                orig_answer.is_correct = True
+            
+            user.global_score += 1
+            await session.commit()
+            
+            await bot.send_message(
+                chat_id=tg_user_id,
+                text=f"🎉 *Правильно!* Ошибка исправлена, вам начислен *1* балл!\n🏆 Ваш рейтинг: *{user.global_score}* баллов.",
+                parse_mode="Markdown"
+            )
+        else:
+            await session.commit()
+            await bot.send_message(
+                chat_id=tg_user_id,
+                text="❌ *Неверно.* Попробуйте еще раз в следующий раз!",
+                parse_mode="Markdown"
+            )
+        return
+
     # 4. Проверяем, не отвечал ли юзер на этот вопрос ранее 
     # (Защита от дублей, если Telegram пришлет событие дважды при лагах сети)
     existing_answer_stmt = select(UserAnswer).where(

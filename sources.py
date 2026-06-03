@@ -5,11 +5,7 @@ TG_SOURCES = [
 'ml_product',
 'pro_ai_news',  
 'ai_newz',
-'data_secrets'
-]
-
-"""
-'https://t.me/ai_link_vibe' # нейродайджест
+'data_secrets',
 'seeallochnaya',
 'lovedeathtransformers',
 'addmeto',
@@ -20,6 +16,11 @@ TG_SOURCES = [
 'cryptovalerii',
 'AIexTime',
 'senior_augur',
+]
+
+"""
+'https://t.me/ai_link_vibe' # нейродайджест
+
 @ml4value
 @cryptoEssay
 @AGI_and_RL

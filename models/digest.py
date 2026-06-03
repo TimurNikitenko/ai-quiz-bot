@@ -17,5 +17,6 @@ class Digest(Base, TimeStampMixin):
     )
     posts = relationship("Post", back_populates="digest")
     quiz = relationship("Quiz", back_populates="digest", uselist=False)
+    is_published: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 

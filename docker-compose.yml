@@ -55,6 +55,8 @@ services:
       - DB_HOST=db  
       - REDIS_HOST=redis
       - PROXY_HOST=xray-client
+    volumes:
+      - .:/app
 
   digest_pipeline:
     build: .

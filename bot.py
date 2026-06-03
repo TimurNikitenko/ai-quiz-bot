@@ -2,6 +2,7 @@ import os
 import random
 import asyncio
 import logging
+from typing import Optional
 from aiogram import Bot
 from aiogram.types import Poll, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -49,7 +50,7 @@ def markdown_to_html(text: str) -> str:
     
     return text
 
-async def publish_latest_digest():
+async def publish_digest_by_id(digest_id: Optional[int] = None):
     load_dotenv()
     bot = Bot(token=os.getenv("BOT_TOKEN"))
     try:
@@ -64,20 +65,12 @@ async def publish_latest_digest():
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
         async with AsyncSessionLocal() as session:
-            # 1. Получаем ID дайджеста из аргументов командной строки, если передан
-            digest_id = None
-            if len(sys.argv) > 1:
-                try:
-                    digest_id = int(sys.argv[1])
-                except ValueError:
-                    logger.error("Неверный ID дайджеста (должен быть числом).")
-                    return
-
             if digest_id:
                 stmt = select(Digest).where(Digest.id == digest_id)
             else:
                 stmt = (
                     select(Digest)
+                    .where(Digest.is_published == False)
                     .order_by(Digest.created_at.desc())
                     .limit(1)
                 )
@@ -88,7 +81,7 @@ async def publish_latest_digest():
                 if digest_id:
                     logger.error(f"Дайджест с ID #{digest_id} не найден в базе.")
                 else:
-                    logger.error("Дайджесты не найдены в базе.")
+                    logger.info("Нет неопубликованных дайджестов в базе.")
                 return
 
             content_chunks = split_text(digest.content)
@@ -105,7 +98,6 @@ async def publish_latest_digest():
                     await asyncio.sleep(0.5)
                     
             logger.info(f"Дайджест #{digest.id} отправлен ({len(content_chunks)} ч.)")
-
 
             stmt_quiz = select(Quiz).where(Quiz.digest_id == digest.id)
             res_quiz = await session.execute(stmt_quiz)
@@ -134,6 +126,11 @@ async def publish_latest_digest():
                 )
                 logger.info(f"Ссылка на квиз для дайджеста #{digest.id} отправлена.")
 
+            # Помечаем дайджест как опубликованный в БД
+            digest.is_published = True
+            await session.commit()
+            logger.info(f"Дайджест #{digest.id} успешно помечен как опубликованный в БД.")
+
     except Exception as e:
         logger.error(f"Ошибка при публикации: {e}")
     finally:
@@ -142,4 +139,13 @@ async def publish_latest_digest():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(publish_latest_digest())
+    
+    digest_id = None
+    if len(sys.argv) > 1:
+        try:
+            digest_id = int(sys.argv[1])
+        except ValueError:
+            logger.error("Неверный ID дайджеста (должен быть числом).")
+            sys.exit(1)
+            
+    asyncio.run(publish_digest_by_id(digest_id))

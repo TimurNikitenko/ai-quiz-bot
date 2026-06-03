@@ -248,6 +248,49 @@ class DigestPipeline:
             await self.db_session.commit()
             logger.info(f"Успешно создан Дайджест #{new_digest.id} и Квиз на {len(selected_questions)} вопросов.")
 
+            # Уведомляем админа, если задан ADMIN_TELEGRAM_ID
+            import os
+            admin_id_str = os.getenv("ADMIN_TELEGRAM_ID")
+            bot_token = os.getenv("BOT_TOKEN")
+            if admin_id_str and bot_token:
+                try:
+                    from aiogram import Bot
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    
+                    admin_id = int(admin_id_str)
+                    temp_bot = Bot(token=bot_token)
+                    
+                    approve_btn = InlineKeyboardButton(
+                        text="✅ Одобрить и опубликовать",
+                        callback_data=f"approve_digest:{new_digest.id}"
+                    )
+                    delete_btn = InlineKeyboardButton(
+                        text="❌ Удалить",
+                        callback_data=f"delete_digest:{new_digest.id}"
+                    )
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[approve_btn, delete_btn]])
+                    
+                    # Разрезаем текст на куски, если превышает лимиты Telegram
+                    from bot import split_text
+                    chunks = split_text(digest_content, limit=3500)
+                    
+                    await temp_bot.send_message(
+                        chat_id=admin_id,
+                        text=f"📝 *Черновик Дайджеста #{new_digest.id} готов для проверки!*"
+                    )
+                    
+                    for idx, chunk in enumerate(chunks):
+                        is_last = (idx == len(chunks) - 1)
+                        await temp_bot.send_message(
+                            chat_id=admin_id,
+                            text=chunk,
+                            reply_markup=keyboard if is_last else None
+                        )
+                    await temp_bot.session.close()
+                    logger.info(f"Черновик дайджеста #{new_digest.id} успешно отправлен админу {admin_id}")
+                except Exception as admin_err:
+                    logger.error(f"Ошибка при отправке черновика админу: {admin_err}")
+
         except Exception as e:
             logger.error(f"Ошибка при сборке дайджеста: {e}")
             await self.db_session.rollback()

@@ -83,7 +83,7 @@ async def handle_start(message: Message, command: CommandObject, session: AsyncS
         await message.answer("❌ В этом квизе нет вопросов.")
         return
 
-    for q in quiz.questions:
+    for i, q in enumerate(quiz.questions):
         correct_text = q["correct_answer"]
         shuffled_options = q["options"].copy()
         random.shuffle(shuffled_options)
@@ -103,7 +103,8 @@ async def handle_start(message: Message, command: CommandObject, session: AsyncS
         poll_mapping = PollMapping(
             poll_id=poll_message.poll.id,
             quiz_id=quiz.id,
-            correct_option_id=new_correct_id
+            correct_option_id=new_correct_id,
+            question_index=i
         )
         session.add(poll_mapping)
         await asyncio.sleep(0.5)

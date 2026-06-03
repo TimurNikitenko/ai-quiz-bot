@@ -3,10 +3,11 @@ import logging
 import os
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from tg_bot.middlewares.db import DbSessionMiddleware
-from tg_bot.handlers import polls_router, quiz_router
+from tg_bot.handlers import polls_router, quiz_router, leaderboard_router, review_router, admin_review_router
 
 async def main():
     load_dotenv()
@@ -16,6 +17,14 @@ async def main():
     
     bot = Bot(token=os.getenv("BOT_TOKEN"))
     dp = Dispatcher()
+
+    # Register bot commands menu
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Запустить бота / Приветствие"),
+        BotCommand(command="leaderboard", description="Показать рейтинг участников"),
+        BotCommand(command="review", description="Работа над ошибками (до 5 вопросов)"),
+    ])
+
 
     # Инициализация БД
     db_user = os.getenv('DB_USER')
@@ -29,10 +38,13 @@ async def main():
 
     # Подключаем миддлварь
     dp.update.middleware(DbSessionMiddleware(session_pool))
-    
+
     # Подключаем роутеры
     dp.include_router(polls_router)
     dp.include_router(quiz_router)
+    dp.include_router(leaderboard_router)
+    dp.include_router(review_router)
+    dp.include_router(admin_review_router)
 
     logger.info("Бот запущен и готов ловить ответы!")
     # Запускаем поллинг (бот работает бесконечно)
