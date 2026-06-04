@@ -4,6 +4,7 @@ from aiogram.types import PollAnswer
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import User, UserAnswer, Quiz, PollMapping
+from tg_bot.handlers.quiz import send_quiz_question
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -128,7 +129,11 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
         )
         answered_count = (await session.execute(answers_count_stmt)).scalar() or 0
         
-        if answered_count == total_questions:
+        if answered_count < total_questions:
+            # Отправляем следующий вопрос
+            await send_quiz_question(tg_user_id, quiz, answered_count, bot, session)
+            await session.commit()
+        elif answered_count == total_questions:
             # Квиз полностью пройден, получаем все ответы пользователя по этому квизу
             all_answers_stmt = select(UserAnswer).where(
                 UserAnswer.user_id == user.id,

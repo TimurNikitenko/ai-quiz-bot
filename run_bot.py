@@ -21,6 +21,7 @@ async def main():
     # Register bot commands menu
     await bot.set_my_commands([
         BotCommand(command="start", description="Запустить бота / Приветствие"),
+        BotCommand(command="help", description="Справка по командам и возможностям"),
         BotCommand(command="leaderboard", description="Показать рейтинг участников"),
         BotCommand(command="review", description="Работа над ошибками (до 5 вопросов)"),
     ])
