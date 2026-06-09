@@ -83,7 +83,8 @@ class DigestPipeline:
                         link=link,
                         title=f"Post from {channel}", 
                         content=post_data["text"],
-                        post_date=post_data["date"]
+                        post_date=post_data["date"],
+                        media_path=post_data.get("media_path")
                     )
                     self.db_session.add(new_post)
                     
@@ -101,8 +102,15 @@ class DigestPipeline:
         """Берет сырые посты из БД и прогоняет через LLM."""
         logger.info("Запуск джобы обработки LLM...")
 
-        # Ищем посты, которые мы еще не анализировали
-        stmt = select(Post).where(Post.is_ad_or_trash.is_(None))
+        from datetime import datetime, timedelta, timezone
+        tz = timezone(timedelta(hours=3))
+        seven_days_ago = datetime.now(tz) - timedelta(days=7)
+
+        # Ищем посты, которые мы еще не анализировали и которые не старше 7 дней
+        stmt = select(Post).where(
+            Post.is_ad_or_trash.is_(None),
+            Post.post_date >= seven_days_ago
+        )
         result = await self.db_session.execute(stmt)
         unprocessed_posts = result.scalars().all()
 
@@ -160,9 +168,14 @@ class DigestPipeline:
         """Собирает готовые посты в дайджест и формирует квиз."""
         logger.info("Запуск джобы сборки дайджеста...")
 
+        from datetime import datetime, timedelta, timezone
+        tz = timezone(timedelta(hours=3))
+        seven_days_ago = datetime.now(tz) - timedelta(days=7)
+
         stmt = select(Post).where(
             Post.is_ad_or_trash == False,
-            Post.digest_id.is_(None)
+            Post.digest_id.is_(None),
+            Post.post_date >= seven_days_ago
         ).order_by(Post.post_date.desc()).limit(max_posts_in_digest)
         
         result = await self.db_session.execute(stmt)
@@ -255,20 +268,56 @@ class DigestPipeline:
             if admin_id_str and bot_token:
                 try:
                     from aiogram import Bot
-                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, FSInputFile
                     
                     admin_id = int(admin_id_str)
                     temp_bot = Bot(token=bot_token)
                     
-                    approve_btn = InlineKeyboardButton(
-                        text="✅ Одобрить и опубликовать",
-                        callback_data=f"approve_digest:{new_digest.id}"
-                    )
-                    delete_btn = InlineKeyboardButton(
+                    # Сбор прикрепленных фото
+                    photos = [p.media_path for p in ready_posts if p.media_path and os.path.exists(p.media_path)]
+                    
+                    buttons = []
+                    if photos:
+                        # Отправляем фото альбомом
+                        media_group = []
+                        for idx, photo_path in enumerate(photos, 1):
+                            media_group.append(InputMediaPhoto(media=FSInputFile(photo_path), caption=f"Фото {idx}"))
+                        
+                        await temp_bot.send_message(
+                            chat_id=admin_id,
+                            text=f"🖼 *К черновику Дайджеста #{new_digest.id} прикреплены изображения ({len(photos)} шт.):*"
+                        )
+                        await temp_bot.send_media_group(chat_id=admin_id, media=media_group)
+                        
+                        # Кнопка публикации без фото
+                        buttons.append([InlineKeyboardButton(
+                            text="✅ Опубликовать без фото",
+                            callback_data=f"approve_digest:{new_digest.id}:no_photo"
+                        )])
+                        
+                        # Кнопки для каждого фото
+                        photo_buttons = []
+                        for idx in range(len(photos)):
+                            photo_buttons.append(InlineKeyboardButton(
+                                text=f"🖼 С Фото {idx + 1}",
+                                callback_data=f"approve_digest:{new_digest.id}:photo_{idx}"
+                            ))
+                        # Разделяем по две кнопки в ряд
+                        for i in range(0, len(photo_buttons), 2):
+                            buttons.append(photo_buttons[i:i+2])
+                    else:
+                        buttons.append([InlineKeyboardButton(
+                            text="✅ Одобрить и опубликовать",
+                            callback_data=f"approve_digest:{new_digest.id}:no_photo"
+                        )])
+                        
+                    # Кнопка удаления черновика
+                    buttons.append([InlineKeyboardButton(
                         text="❌ Удалить",
                         callback_data=f"delete_digest:{new_digest.id}"
-                    )
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[[approve_btn, delete_btn]])
+                    )])
+                    
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
                     
                     # Разрезаем текст на куски, если превышает лимиты Telegram
                     from bot import split_text

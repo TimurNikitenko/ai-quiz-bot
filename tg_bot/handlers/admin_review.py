@@ -25,12 +25,33 @@ async def approve_digest_callback(callback: CallbackQuery, session: AsyncSession
         await callback.answer("У вас нет прав администратора!", show_alert=True)
         return
         
-    digest_id = int(callback.data.split(":")[1])
+    parts = callback.data.split(":")
+    digest_id = int(parts[1])
+    action = parts[2] if len(parts) > 2 else "no_photo"
+    
     await callback.answer("Публикация...")
     
     try:
+        photo_path = None
+        if action.startswith("photo_"):
+            try:
+                photo_idx = int(action.split("_")[1])
+                from models import Post
+                stmt = select(Post).where(Post.digest_id == digest_id).order_by(Post.post_date.desc())
+                res = await session.execute(stmt)
+                posts = res.scalars().all()
+                # filter unique paths that exist
+                photos = []
+                for p in posts:
+                    if p.media_path and p.media_path not in photos:
+                        photos.append(p.media_path)
+                if 0 <= photo_idx < len(photos):
+                    photo_path = photos[photo_idx]
+            except Exception as parse_err:
+                logger.error(f"Ошибка получения пути фото для дайджеста #{digest_id}: {parse_err}")
+
         # Публикуем дайджест в канал
-        await publish_digest_by_id(digest_id)
+        await publish_digest_by_id(digest_id, photo_path=photo_path)
         
         # Обновляем сообщение для админа
         await callback.message.edit_text(

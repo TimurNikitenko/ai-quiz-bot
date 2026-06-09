@@ -30,4 +30,5 @@ class Post(Base, TimeStampMixin):
     )
     model_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    media_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     digest = relationship("Digest", back_populates="posts")

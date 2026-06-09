@@ -73,10 +73,25 @@ class TGParser:
             if msg_date:
                 msg_date = msg_date.astimezone(timezone(timedelta(hours=3)))
 
+            # Download photo media if present
+            media_path = None
+            if message.photo:
+                import os
+                os.makedirs("downloads", exist_ok=True)
+                filename = f"downloads/{channel_username}_{message.id}.jpg"
+                try:
+                    downloaded_file = await self.client.download_media(message.photo, file=filename)
+                    if downloaded_file:
+                        media_path = downloaded_file
+                        logger.info(f"Downloaded media to {media_path} for post {message.id} in @{channel_username}")
+                except Exception as media_err:
+                    logger.error(f"Error downloading media for message {message.id} in @{channel_username}: {media_err}")
+
             post_data = {
                 "text": text_for_llm,
                 "link": f"https://t.me/{channel_username}/{message.id}",
                 "date": msg_date,
+                "media_path": media_path,
             }
             posts.append(post_data)
 

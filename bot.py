@@ -50,7 +50,7 @@ def markdown_to_html(text: str) -> str:
     
     return text
 
-async def publish_digest_by_id(digest_id: Optional[int] = None):
+async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Optional[str] = None):
     load_dotenv()
     bot = Bot(token=os.getenv("BOT_TOKEN"))
     try:
@@ -98,6 +98,18 @@ async def publish_digest_by_id(digest_id: Optional[int] = None):
                 return
 
             content_chunks = split_text(digest.content)
+            
+            if photo_path and os.path.exists(photo_path):
+                from aiogram.types import FSInputFile
+                try:
+                    photo_file = FSInputFile(photo_path)
+                    await bot.send_photo(
+                        chat_id=channel_id,
+                        photo=photo_file
+                    )
+                    logger.info(f"Фото {photo_path} успешно опубликовано к дайджесту #{digest.id}")
+                except Exception as photo_err:
+                    logger.error(f"Ошибка при публикации фото {photo_path} к дайджесту #{digest.id}: {photo_err}")
     
             for i, chunk in enumerate(content_chunks):
                 html_chunk = markdown_to_html(chunk)
