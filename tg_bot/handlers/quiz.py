@@ -117,9 +117,14 @@ async def handle_start(message: Message, command: CommandObject, session: AsyncS
         return
 
     # 5. Check if the user already took this quiz
-    existing_answers_stmt = select(UserAnswer).where(
-        UserAnswer.user_id == user.id,
-        UserAnswer.quiz_id == quiz.id
+    existing_answers_stmt = (
+        select(UserAnswer)
+        .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+        .where(
+            UserAnswer.user_id == user.id,
+            UserAnswer.quiz_id == quiz.id,
+            PollMapping.original_user_answer_id.is_(None)
+        )
     )
     existing_answers = (await session.execute(existing_answers_stmt)).scalars().all()
     total_count = len(quiz.questions)

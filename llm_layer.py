@@ -126,6 +126,8 @@ class MessageExtractor:
                 if schema:
                     res = json.loads(res)
 
+                res = self._deep_clean(res)
+
                 self.temperature = 0.0
                 tokens = (
                     parsed_response.usage.total_tokens
@@ -218,6 +220,11 @@ class MessageExtractor:
         if isinstance(data, list):
             return [self._deep_clean(i) for i in data]
         if isinstance(data, str):
-            cleaned = "".join(ch for ch in data if ch.isprintable())
+            try:
+                # If characters are UTF-8 bytes mis-decoded as latin1, this will fix them
+                data = data.encode('latin1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+            cleaned = "".join(ch for ch in data if ch.isprintable() or ch in "\n\r\t")
             return cleaned.strip()
         return data

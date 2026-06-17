@@ -111,45 +111,50 @@ async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Opti
                 except Exception as photo_err:
                     logger.error(f"Ошибка при публикации фото {photo_path} к дайджесту #{digest.id}: {photo_err}")
     
-            for i, chunk in enumerate(content_chunks):
-                html_chunk = markdown_to_html(chunk)
-                await bot.send_message(
-                    chat_id=channel_id,
-                    text=html_chunk,
-                    parse_mode="HTML",
-                    link_preview_options=LinkPreviewOptions(is_disabled=True)
-                )
-                if len(content_chunks) > 1:
-                    await asyncio.sleep(0.5)
-                    
-            logger.info(f"Дайджест #{digest.id} отправлен ({len(content_chunks)} ч.)")
-
+            # Ищем квиз заранее, чтобы прикрепить кнопку к последнему сообщению
             stmt_quiz = select(Quiz).where(Quiz.digest_id == digest.id)
             res_quiz = await session.execute(stmt_quiz)
             quiz = res_quiz.scalar()
 
+            keyboard = None
             if quiz and quiz.questions:
                 bot_info = await bot.get_me()
                 quiz_link = f"https://t.me/{bot_info.username}?start=quiz_{digest.id}"
-                
                 keyboard = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="🧠 Пройти квиз",
+                                text="🧠 Пройти в боте",
                                 url=quiz_link
                             )
                         ]
                     ]
                 )
+
+            last_message_id = None
+            for i, chunk in enumerate(content_chunks):
+                html_chunk = markdown_to_html(chunk)
+                reply_markup = keyboard if (i == len(content_chunks) - 1) else None
                 
-                await bot.send_message(
+                msg = await bot.send_message(
                     chat_id=channel_id,
-                    text="📚 *Пройдите квиз по материалам дайджеста!*\nПроверьте свои знания и заработайте баллы.",
-                    reply_markup=keyboard,
-                    parse_mode="Markdown"
+                    text=html_chunk,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True)
                 )
-                logger.info(f"Ссылка на квиз для дайджеста #{digest.id} отправлена.")
+                last_message_id = msg.message_id
+                if len(content_chunks) > 1:
+                    await asyncio.sleep(0.5)
+                    
+            logger.info(f"Дайджест #{digest.id} отправлен ({len(content_chunks)} ч.)")
+
+            if quiz and quiz.questions and last_message_id:
+                current_info = dict(quiz.poll_info) if quiz.poll_info else {}
+                current_info["telegram_message_id"] = last_message_id
+                quiz.poll_info = current_info
+                session.add(quiz)
+                logger.info(f"Квиз для дайджеста #{digest.id} привязан к сообщению в канале (ID: {last_message_id}).")
 
             # Помечаем дайджест как опубликованный в БД для конкретного канала
             pub_record = PublishedDigest(digest_id=digest.id, chat_id=str(channel_id))

@@ -16,27 +16,28 @@ TG_SOURCES = [
 'cryptovalerii',
 'AIexTime',
 'senior_augur',
+'ml4value',
+'cryptoEssay',
+'AGI_and_RL',
+'rybolos_channel',
+'oulenspiegel_channel',
+'ai_machinelearning_big_data',
+'reliable_ml',
+'not_boring_ds',
+'adel_and_ml',
+'gonzo_ML',
+'sinecor',
+'datafest',
+'vikulin_ai',
+'oestick',
+'the_ai_architect',
+'new_yorko_times',
+'jdata_blog',
+'ai_newz'
 ]
 
 """
 'https://t.me/ai_link_vibe' # нейродайджест
 
-@ml4value
-@cryptoEssay
-@AGI_and_RL
-@rybolos_channel
-@oulenspiegel_channel
-@ai_machinelearning_big_data
-@reliable_ml
-@not_boring_ds
-@adel_and_ml
-@gonzo_ML
-@sinecor
-@datafest
-@vikulin_ai
-@oestick
-@the_ai_architect
-@new_yorko_times
-@jdata_blog
-@ai_newz
+
 """

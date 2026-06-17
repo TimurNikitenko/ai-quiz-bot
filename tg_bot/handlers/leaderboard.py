@@ -17,7 +17,10 @@ async def show_leaderboard(message: Message, session: AsyncSession):
     users = result.scalars().all()
     
     if not users:
-        await message.answer("🏆 <b>Рейтинг игроков пока пуст!</b> Будьте первыми!", parse_mode="HTML")
+        if message.chat.type in ("group", "supergroup"):
+            await message.reply("🏆 <b>Рейтинг игроков пока пуст!</b> Будьте первыми!", parse_mode="HTML")
+        else:
+            await message.answer("🏆 <b>Рейтинг игроков пока пуст!</b> Будьте первыми!", parse_mode="HTML")
         return
         
     text = "🏆 <b>Рейтинг участников квиза:</b>\n\n"
@@ -26,5 +29,8 @@ async def show_leaderboard(message: Message, session: AsyncSession):
         username_str = f"@{u.username}" if u.username else f"Игрок {u.telegram_id}"
         escaped_username = html.escape(username_str)
         text += f"{medal} {escaped_username} — <b>{u.global_score}</b> баллов\n"
-        
-    await message.answer(text, parse_mode="HTML")
+
+    if message.chat.type in ("group", "supergroup"):
+        await message.reply(text, parse_mode="HTML")
+    else:
+        await message.answer(text, parse_mode="HTML")

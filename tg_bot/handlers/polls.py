@@ -82,14 +82,39 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
             )
         return
 
-    # 4. Проверяем, не отвечал ли юзер на этот вопрос ранее 
-    # (Защита от дублей, если Telegram пришлет событие дважды при лагах сети)
-    existing_answer_stmt = select(UserAnswer).where(
-        UserAnswer.telegram_poll_id == poll_id, 
-        UserAnswer.user_id == user.id
+    # 4. Проверяем, не отвечал ли юзер на этот вопрос ранее (включая комментарии/бот)
+    duplicate_stmt = (
+        select(UserAnswer)
+        .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+        .where(
+            UserAnswer.user_id == user.id,
+            UserAnswer.quiz_id == mapping.quiz_id,
+            PollMapping.question_index == mapping.question_index
+        )
     )
-    if (await session.execute(existing_answer_stmt)).scalar_one_or_none():
-        return # Уже обработали
+    if (await session.execute(duplicate_stmt)).scalar_one_or_none():
+        logger.info(f"User {username} already answered question index {mapping.question_index} of quiz {mapping.quiz_id}")
+        return
+
+    # Если это публичный опрос из комментариев канала
+    if mapping.is_comments_poll:
+        is_correct = (selected_option == mapping.correct_option_id)
+        new_answer = UserAnswer(
+            user_id=user.id,
+            quiz_id=mapping.quiz_id,
+            telegram_poll_id=poll_id,
+            is_correct=is_correct
+        )
+        session.add(new_answer)
+
+        if is_correct:
+            user.global_score += 1
+            if user.username != username:
+                user.username = username
+
+        await session.commit()
+        logger.info(f"User {username} answered comments poll {poll_id}. Correct: {is_correct}. Score: {user.global_score}")
+        return
 
     # 5. Проверяем правильность ответа
     is_correct = (selected_option == mapping.correct_option_id)
@@ -123,9 +148,14 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
         total_questions = len(quiz.questions)
         
         # Считаем количество ответов пользователя на этот квиз
-        answers_count_stmt = select(func.count(UserAnswer.id)).where(
-            UserAnswer.user_id == user.id,
-            UserAnswer.quiz_id == quiz.id
+        answers_count_stmt = (
+            select(func.count(UserAnswer.id))
+            .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+            .where(
+                UserAnswer.user_id == user.id,
+                UserAnswer.quiz_id == quiz.id,
+                PollMapping.original_user_answer_id.is_(None)
+            )
         )
         answered_count = (await session.execute(answers_count_stmt)).scalar() or 0
         
@@ -135,9 +165,14 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
             await session.commit()
         elif answered_count == total_questions:
             # Квиз полностью пройден, получаем все ответы пользователя по этому квизу
-            all_answers_stmt = select(UserAnswer).where(
-                UserAnswer.user_id == user.id,
-                UserAnswer.quiz_id == quiz.id
+            all_answers_stmt = (
+                select(UserAnswer)
+                .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+                .where(
+                    UserAnswer.user_id == user.id,
+                    UserAnswer.quiz_id == quiz.id,
+                    PollMapping.original_user_answer_id.is_(None)
+                )
             )
             all_answers = (await session.execute(all_answers_stmt)).scalars().all()
             correct_count = sum(1 for ans in all_answers if ans.is_correct)

@@ -48,15 +48,18 @@ async def main():
         decode_responses=True 
     )
 
+    download_media = os.getenv("DOWNLOAD_MEDIA", "False").lower() in ("true", "1", "yes")
+
     tg_parser = TGParser(
         api_id=tg_api_id, 
         api_hash=tg_api_hash,
         proxy_host=proxy_host,
-        proxy_port=proxy_port
+        proxy_port=proxy_port,
+        download_media=download_media
     )
     
     extractor = MessageExtractor(
-        model_names=["openai/gpt-5.4-nano"], 
+        model_names=["deepseek/deepseek-v4-pro"], 
         api_keys=[openrouter_key],
         proxy=None
     )
@@ -73,9 +76,9 @@ async def main():
             )
 
             logger.info("--- СТАРТ ЦИКЛА ---")
-            await pipeline.run_parsing_job()
-            await pipeline.run_llm_processing_job(schema=post_schema)
-            await pipeline.run_digest_assembly_job()
+            # await pipeline.run_parsing_job()
+            # await pipeline.run_llm_processing_job(schema=post_schema)
+            # await pipeline.run_digest_assembly_job()
             logger.info("--- ЦИКЛ ЗАВЕРШЕН ---")
         
         logger.info(f"Ожидание следующего запуска ({interval} секунд)...")

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TGParser:
-    def __init__(self, api_id: int, api_hash: str, proxy_host: str, proxy_port: int, session_name: str = "event_session"):
+    def __init__(self, api_id: int, api_hash: str, proxy_host: str, proxy_port: int, session_name: str = "event_session", download_media: bool = True):
         proxy_tuple = ("socks5", proxy_host, proxy_port)
         self.client = TelegramClient(
             session_name,
@@ -19,6 +19,7 @@ class TGParser:
             connection=ConnectionTcpObfuscated,
             use_ipv6=False,
         )
+        self.download_media = download_media
 
     async def start(self):
         await self.client.start()
@@ -42,7 +43,7 @@ class TGParser:
         posts = []
         total_msgs = 0
 
-        async for message in self.client.iter_messages(channel_username, limit=5):
+        async for message in self.client.iter_messages(channel_username, limit=10):
             total_msgs += 1
 
             text_raw = message.text or ""
@@ -75,7 +76,7 @@ class TGParser:
 
             # Download photo media if present
             media_path = None
-            if message.photo:
+            if self.download_media and message.photo:
                 import os
                 os.makedirs("downloads", exist_ok=True)
                 filename = f"downloads/{channel_username}_{message.id}.jpg"

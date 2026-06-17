@@ -20,6 +20,8 @@ def clean_poll_text(text: str) -> str:
 async def handle_review(message: Message, session: AsyncSession, bot: Bot):
     tg_user_id = message.from_user.id
     username = message.from_user.username
+    mention = f"@{username}" if username else message.from_user.full_name
+    is_group = message.chat.type in ("group", "supergroup")
 
     # 1. Получаем пользователя
     user_stmt = select(User).where(User.telegram_id == tg_user_id)
@@ -27,10 +29,16 @@ async def handle_review(message: Message, session: AsyncSession, bot: Bot):
     
     if not user:
         # Если пользователя нет в базе, значит он еще ничего не проходил
-        await message.answer(
-            "👋 *Привет!*\n\nУ вас пока нет истории ответов и ошибок. Начните проходить квизы в канале!",
-            parse_mode="Markdown"
-        )
+        if is_group:
+            await message.reply(
+                f"👋 {mention}, у вас пока нет истории ответов и ошибок. Начните проходить квизы в канале!",
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer(
+                "👋 *Привет!*\n\nУ вас пока нет истории ответов и ошибок. Начните проходить квизы в канале!",
+                parse_mode="Markdown"
+            )
         return
 
     # 2. Находим неверные ответы с привязанным индексом вопроса
@@ -41,16 +49,23 @@ async def handle_review(message: Message, session: AsyncSession, bot: Bot):
         .where(
             UserAnswer.user_id == user.id,
             UserAnswer.is_correct == False,
-            PollMapping.question_index != None
+            PollMapping.question_index != None,
+            PollMapping.original_user_answer_id.is_(None)
         )
     )
     results = (await session.execute(stmt)).all()
 
     if not results:
-        await message.answer(
-            "🎉 *Отлично!* У вас нет неисправленных ошибок. Вы молодец!",
-            parse_mode="Markdown"
-        )
+        if is_group:
+            await message.reply(
+                f"🎉 {mention}, у вас нет неисправленных ошибок. Вы молодец!",
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer(
+                "🎉 *Отлично!* У вас нет неисправленных ошибок. Вы молодец!",
+                parse_mode="Markdown"
+            )
         return
 
     # 3. Выбираем до 5 случайных уникальных ошибок
@@ -64,11 +79,30 @@ async def handle_review(message: Message, session: AsyncSession, bot: Bot):
     mistake_list = list(unique_mistakes.values())
     selected_mistakes = random.sample(mistake_list, min(len(mistake_list), 5))
 
-    await message.answer(
-        f"🔄 *Работа над ошибками (выслано вопросов: {len(selected_mistakes)}):*\n"
-        f"Ответьте правильно, чтобы исправить ошибку и получить балл!",
-        parse_mode="Markdown"
-    )
+    try:
+        # Пытаемся отправить приветственное сообщение в ЛС
+        await bot.send_message(
+            chat_id=tg_user_id,
+            text=f"🔄 *Работа над ошибками (выслано вопросов: {len(selected_mistakes)}):*\n"
+                 f"Ответьте правильно, чтобы исправить ошибку и получить балл!",
+            parse_mode="Markdown"
+        )
+    except Exception as pm_err:
+        logger.warning(f"Не удалось отправить сообщение пользователю {tg_user_id} в ЛС: {pm_err}")
+        if is_group:
+            bot_info = await bot.get_me()
+            await message.reply(
+                f"⚠️ {mention}, пожалуйста, сначала запустите/разблокируйте бота в личных сообщениях: @{bot_info.username}",
+                parse_mode="Markdown"
+            )
+        return
+
+    if is_group:
+        await message.reply(
+            f"🔄 {mention}, я отправил вам вопросы для работы над ошибками в личные сообщения!",
+            parse_mode="Markdown"
+        )
+
     await asyncio.sleep(0.5)
 
     for user_answer, poll_mapping, quiz in selected_mistakes:

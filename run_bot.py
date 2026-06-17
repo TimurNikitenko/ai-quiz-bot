@@ -7,7 +7,7 @@ from aiogram.types import BotCommand
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from tg_bot.middlewares.db import DbSessionMiddleware
-from tg_bot.handlers import polls_router, quiz_router, leaderboard_router, review_router, admin_review_router
+from tg_bot.handlers import polls_router, quiz_router, leaderboard_router, review_router, admin_review_router, comments_router
 
 async def main():
     load_dotenv()
@@ -46,6 +46,7 @@ async def main():
     dp.include_router(leaderboard_router)
     dp.include_router(review_router)
     dp.include_router(admin_review_router)
+    dp.include_router(comments_router)
 
     logger.info("Бот запущен и готов ловить ответы!")
     # Запускаем поллинг (бот работает бесконечно)
