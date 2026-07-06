@@ -76,8 +76,7 @@ post_schema = {
                     },
                     "options": {
                         "type": "array",
-                        "items": {"type": "string", "maxLength": 100,
-},
+                        "items": {"type": "string", "maxLength": 100},
                         "minItems": 4, 
                         "maxItems": 4
                     },

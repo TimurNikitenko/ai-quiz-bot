@@ -106,5 +106,3 @@ class TGParser:
                 logger.info("Telegram клиент отключён")
         except Exception as e:
             logger.warning(f"Ошибка при отключении Telegram клиента: {e}")
-
-# docker network create proxy-network

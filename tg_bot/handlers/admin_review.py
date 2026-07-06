@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models import Digest
-from bot import publish_digest_by_id
+from tg_bot.publisher import publish_digest_by_id
 
 router = Router()
 logger = logging.getLogger(__name__)

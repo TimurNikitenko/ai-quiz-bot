@@ -47,3 +47,6 @@ types-jsonschema==4.26.0.20260508
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 yarl==1.23.0
+APScheduler==3.10.4
+tzlocal==5.3.1
+tzdata==2025.3
