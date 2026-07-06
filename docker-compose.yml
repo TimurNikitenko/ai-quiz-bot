@@ -33,15 +33,6 @@ services:
       timeout: 5s
       retries: 5
 
-  xray-client:
-    image: teddysun/xray:latest
-    container_name: xray_client
-    ports:
-      - "1081:1081"
-    restart: unless-stopped
-    volumes:
-      - ./config/config.json:/etc/xray/config.json:ro
-
   tg_bot:
     build: .
     container_name: tg_bot
@@ -54,9 +45,12 @@ services:
     environment:
       - DB_HOST=db
       - REDIS_HOST=redis
-      - PROXY_HOST=xray-client
+      - PROXY_HOST=global_xray_client
     volumes:
       - .:/app
+    networks:
+      - default
+      - proxy-network
 
   digest_pipeline:
     build: .
@@ -73,10 +67,18 @@ services:
     environment:
       - DB_HOST=db
       - REDIS_HOST=redis
-      - PROXY_HOST=xray-client
+      - PROXY_HOST=global_xray_client
     volumes:
       - .:/app
+    networks:
+      - default
+      - proxy-network
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  proxy-network:
+    external: true
+    name: proxy-network
