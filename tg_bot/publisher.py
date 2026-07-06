@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Optional
 from aiogram import Bot
+from tg_bot.bot_instance import get_bot
 from aiogram.types import Poll, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy import select
@@ -52,7 +53,7 @@ def markdown_to_html(text: str) -> str:
 
 async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Optional[str] = None):
     load_dotenv()
-    bot = Bot(token=os.getenv("BOT_TOKEN"))
+    bot = get_bot()
     try:
         channel_id = os.getenv("CHANNEL_ID")
 

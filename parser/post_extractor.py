@@ -14,6 +14,7 @@ from sqlalchemy import select
 from models import Post, Digest, Quiz
 from .telegram_parser import TGParser
 from .llm_layer import MessageExtractor
+from tg_bot.bot_instance import get_bot
 
 logger = logging.getLogger(__name__)
 
@@ -289,11 +290,10 @@ class DigestPipeline:
             bot_token = os.getenv("BOT_TOKEN")
             if admin_id_str and bot_token:
                 try:
-                    from aiogram import Bot
                     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, FSInputFile
                     
                     admin_id = int(admin_id_str)
-                    temp_bot = Bot(token=bot_token)
+                    temp_bot = get_bot()
                     
                     if auto_publish:
                         # Send a simple notification about automatic publishing

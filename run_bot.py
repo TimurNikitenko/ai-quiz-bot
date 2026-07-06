@@ -7,6 +7,7 @@ from aiogram.types import BotCommand
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from tg_bot.middlewares.db import DbSessionMiddleware
+from tg_bot.bot_instance import get_bot
 from tg_bot.handlers import polls_router, quiz_router, leaderboard_router, review_router, admin_review_router, comments_router
 
 async def main():
@@ -15,7 +16,7 @@ async def main():
 
     logger = logging.getLogger(__name__)
     
-    bot = Bot(token=os.getenv("BOT_TOKEN"))
+    bot = get_bot()
     dp = Dispatcher()
 
     # Register bot commands menu
