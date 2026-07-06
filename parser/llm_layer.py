@@ -21,7 +21,7 @@ from openai import (
 )
 
 import datetime
-from prompts import post_prompt_template, digest_assembly_prompt
+from .prompts import post_prompt_template, digest_assembly_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,6 @@ class MessageExtractor:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-       # retry=retry_if_not_exception_type(ORRateLimitError),
     )
     def call_llm(
         self,

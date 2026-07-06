@@ -2,6 +2,7 @@ import logging
 import hashlib
 import asyncio
 import random
+import os
 
 from typing import Optional
 from datetime import datetime
@@ -11,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from models import Post, Digest, Quiz
-from telegram_parser import TGParser
-from llm_layer import MessageExtractor
+from .telegram_parser import TGParser
+from .llm_layer import MessageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -230,14 +231,12 @@ class DigestPipeline:
         random.shuffle(selected_questions)       
 
         try:
- 
             facts = "\n\n".join([f"• {fact}" for fact in all_facts])
             prompt = self.extractor.build_message_extraction_prompt(
                     text=facts, 
                     digest=True
                 )
                 
-
             response = await asyncio.to_thread(
                     self.extractor.call_llm, 
                     user_prompt=prompt, 
@@ -249,7 +248,6 @@ class DigestPipeline:
 
             digest_content, tokens = response
 
-            
             new_digest = Digest(
                 total_tokens=total_tokens + tokens,
                 content=digest_content,
@@ -270,8 +268,23 @@ class DigestPipeline:
             await self.db_session.commit()
             logger.info(f"Успешно создан Дайджест #{new_digest.id} и Квиз на {len(selected_questions)} вопросов.")
 
+            # Auto-publishing flow
+            auto_publish = os.getenv("AUTO_PUBLISH", "True").lower() in ("true", "1", "yes")
+            photo_path = None
+            photos = [p.media_path for p in ready_posts if p.media_path and os.path.exists(p.media_path)]
+            
+            if auto_publish:
+                logger.info(f"Запуск автопубликации для дайджеста #{new_digest.id}...")
+                try:
+                    if photos:
+                        photo_path = photos[0]
+                    from tg_bot.publisher import publish_digest_by_id
+                    await publish_digest_by_id(new_digest.id, photo_path=photo_path)
+                    logger.info(f"Дайджест #{new_digest.id} успешно опубликован автоматически.")
+                except Exception as pub_err:
+                    logger.error(f"Ошибка автопубликации дайджеста #{new_digest.id}: {pub_err}", exc_info=True)
+
             # Уведомляем админа, если задан ADMIN_TELEGRAM_ID
-            import os
             admin_id_str = os.getenv("ADMIN_TELEGRAM_ID")
             bot_token = os.getenv("BOT_TOKEN")
             if admin_id_str and bot_token:
@@ -282,72 +295,77 @@ class DigestPipeline:
                     admin_id = int(admin_id_str)
                     temp_bot = Bot(token=bot_token)
                     
-                    # Сбор прикрепленных фото
-                    photos = [p.media_path for p in ready_posts if p.media_path and os.path.exists(p.media_path)]
-                    
-                    buttons = []
-                    if photos:
-                        # Отправляем фото альбомом
-                        media_group = []
-                        for idx, photo_path in enumerate(photos, 1):
-                            media_group.append(InputMediaPhoto(media=FSInputFile(photo_path), caption=f"Фото {idx}"))
-                        
+                    if auto_publish:
+                        # Send a simple notification about automatic publishing
                         await temp_bot.send_message(
                             chat_id=admin_id,
-                            text=f"🖼 *К черновику Дайджеста #{new_digest.id} прикреплены изображения ({len(photos)} шт.):*"
+                            text=f"🚀 *Дайджест #{new_digest.id} был успешно сформирован и автоматически опубликован в канале!*"
                         )
-                        await temp_bot.send_media_group(chat_id=admin_id, media=media_group)
-                        
-                        # Кнопка публикации без фото
-                        buttons.append([InlineKeyboardButton(
-                            text="✅ Опубликовать без фото",
-                            callback_data=f"approve_digest:{new_digest.id}:no_photo"
-                        )])
-                        
-                        # Кнопки для каждого фото
-                        photo_buttons = []
-                        for idx in range(len(photos)):
-                            photo_buttons.append(InlineKeyboardButton(
-                                text=f"🖼 С Фото {idx + 1}",
-                                callback_data=f"approve_digest:{new_digest.id}:photo_{idx}"
-                            ))
-                        # Разделяем по две кнопки в ряд
-                        for i in range(0, len(photo_buttons), 2):
-                            buttons.append(photo_buttons[i:i+2])
                     else:
+                        # Send manual review options
+                        buttons = []
+                        if photos:
+                            # Отправляем фото альбомом
+                            media_group = []
+                            for idx, p_path in enumerate(photos, 1):
+                                media_group.append(InputMediaPhoto(media=FSInputFile(p_path), caption=f"Фото {idx}"))
+                            
+                            await temp_bot.send_message(
+                                chat_id=admin_id,
+                                text=f"🖼 *К черновику Дайджеста #{new_digest.id} прикреплены изображения ({len(photos)} шт.):*"
+                            )
+                            await temp_bot.send_media_group(chat_id=admin_id, media=media_group)
+                            
+                            # Кнопка публикации без фото
+                            buttons.append([InlineKeyboardButton(
+                                text="✅ Опубликовать без фото",
+                                callback_data=f"approve_digest:{new_digest.id}:no_photo"
+                            )])
+                            
+                            # Кнопки для каждого фото
+                            photo_buttons = []
+                            for idx in range(len(photos)):
+                                photo_buttons.append(InlineKeyboardButton(
+                                    text=f"🖼 С Фото {idx + 1}",
+                                    callback_data=f"approve_digest:{new_digest.id}:photo_{idx}"
+                                ))
+                            # Разделяем по две кнопки в ряд
+                            for i in range(0, len(photo_buttons), 2):
+                                buttons.append(photo_buttons[i:i+2])
+                        else:
+                            buttons.append([InlineKeyboardButton(
+                                text="✅ Одобрить и опубликовать",
+                                callback_data=f"approve_digest:{new_digest.id}:no_photo"
+                            )])
+                            
+                        # Кнопка удаления черновика
                         buttons.append([InlineKeyboardButton(
-                            text="✅ Одобрить и опубликовать",
-                            callback_data=f"approve_digest:{new_digest.id}:no_photo"
+                            text="❌ Удалить",
+                            callback_data=f"delete_digest:{new_digest.id}"
                         )])
                         
-                    # Кнопка удаления черновика
-                    buttons.append([InlineKeyboardButton(
-                        text="❌ Удалить",
-                        callback_data=f"delete_digest:{new_digest.id}"
-                    )])
-                    
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-                    
-                    # Разрезаем текст на куски, если превышает лимиты Telegram
-                    from bot import split_text
-                    chunks = split_text(digest_content, limit=3500)
-                    
-                    await temp_bot.send_message(
-                        chat_id=admin_id,
-                        text=f"📝 *Черновик Дайджеста #{new_digest.id} готов для проверки!*"
-                    )
-                    
-                    for idx, chunk in enumerate(chunks):
-                        is_last = (idx == len(chunks) - 1)
+                        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+                        
+                        # Разрезаем текст на куски, если превышает лимиты Telegram
+                        from tg_bot.publisher import split_text
+                        chunks = split_text(digest_content, limit=3500)
+                        
                         await temp_bot.send_message(
                             chat_id=admin_id,
-                            text=chunk,
-                            reply_markup=keyboard if is_last else None
+                            text=f"📝 *Черновик Дайджеста #{new_digest.id} готов для проверки!*"
                         )
+                        
+                        for idx, chunk in enumerate(chunks):
+                            is_last = (idx == len(chunks) - 1)
+                            await temp_bot.send_message(
+                                chat_id=admin_id,
+                                text=chunk,
+                                reply_markup=keyboard if is_last else None
+                            )
                     await temp_bot.session.close()
-                    logger.info(f"Черновик дайджеста #{new_digest.id} успешно отправлен админу {admin_id}")
+                    logger.info(f"Уведомление о дайджесте #{new_digest.id} успешно отправлено админу {admin_id}")
                 except Exception as admin_err:
-                    logger.error(f"Ошибка при отправке черновика админу: {admin_err}")
+                    logger.error(f"Ошибка при отправке уведомления админу: {admin_err}")
 
         except Exception as e:
             logger.error(f"Ошибка при сборке дайджеста: {e}")
