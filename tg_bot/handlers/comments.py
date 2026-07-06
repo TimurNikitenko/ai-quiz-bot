@@ -93,16 +93,10 @@ async def handle_forwarded_post(message: Message, session: AsyncSession, bot: Bo
             clean_group_id = group_id_str
 
         comments_link = f"https://t.me/c/{clean_group_id}/{message.message_id}"
-        bot_info = await bot.get_me()
-        quiz_link = f"https://t.me/{bot_info.username}?start=quiz_{quiz.id}"
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(
-                        text="🧠 Пройти в боте",
-                        url=quiz_link
-                    ),
                     InlineKeyboardButton(
                         text="💬 Пройти в комментариях",
                         url=comments_link

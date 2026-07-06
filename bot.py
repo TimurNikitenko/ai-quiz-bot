@@ -117,19 +117,6 @@ async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Opti
             quiz = res_quiz.scalar()
 
             keyboard = None
-            if quiz and quiz.questions:
-                bot_info = await bot.get_me()
-                quiz_link = f"https://t.me/{bot_info.username}?start=quiz_{digest.id}"
-                keyboard = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="🧠 Пройти в боте",
-                                url=quiz_link
-                            )
-                        ]
-                    ]
-                )
 
             last_message_id = None
             for i, chunk in enumerate(content_chunks):

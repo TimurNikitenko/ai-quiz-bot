@@ -65,6 +65,11 @@ async def main():
     )
 
     interval = int(os.getenv("PARSING_INTERVAL_SECONDS", 14400))
+    max_posts_env = os.getenv("MAX_POSTS_TO_PROCESS_LLM")
+    max_posts = int(max_posts_env) if max_posts_env else None
+    if max_posts:
+        logger.info(f"Настроено ограничение на обработку постов LLM за один цикл: {max_posts}")
+
     while True:
         async with AsyncSessionLocal() as session:
             pipeline = DigestPipeline(
@@ -76,9 +81,9 @@ async def main():
             )
 
             logger.info("--- СТАРТ ЦИКЛА ---")
-            # await pipeline.run_parsing_job()
-            # await pipeline.run_llm_processing_job(schema=post_schema)
-            # await pipeline.run_digest_assembly_job()
+            await pipeline.run_parsing_job()
+            await pipeline.run_llm_processing_job(schema=post_schema, max_posts=max_posts)
+            await pipeline.run_digest_assembly_job()
             logger.info("--- ЦИКЛ ЗАВЕРШЕН ---")
         
         logger.info(f"Ожидание следующего запуска ({interval} секунд)...")

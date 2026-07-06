@@ -25,16 +25,16 @@ async def send_welcome_message(message: Message):
         "• ⚙️ *Глубокие технические детали* для разработчиков (архитектура, оптимизации, бенчмарки).\n"
         "• 💼 *Бизнес-ценность* для менеджеров и аналитиков (влияние на процессы, стоимость интеграции, экономия ресурсов).\n\n"
         "🎮 *Как проходить квизы?*\n"
-        "1️⃣ Перейдите по ссылке *«🧠 Пройти квиз»* под любым дайджестом в нашем канале.\n"
-        "2️⃣ Бот будет присылать вам вопросы **по очереди**, один за другим.\n"
+        "1️⃣ Перейдите по ссылке *«💬 Пройти в комментариях»* под любым дайджестом в нашем канале.\n"
+        "2️⃣ Отвечайте на вопросы викторины прямо в комментариях к посту.\n"
         "3️⃣ За каждый правильный ответ вы получаете **1 балл** к вашему глобальному рейтингу.\n"
-        "4️⃣ После ответа вы сразу увидите пояснение к вопросу.\n\n"
+        "4️⃣ После выбора ответа вы сразу увидите правильный вариант и пояснение.\n\n"
         "🛠 *Доступные команды:*\n"
         "• `/start` — Начало работы и краткое приветствие.\n"
         "• `/help` — Подробное руководство по возможностям бота и темам.\n"
         "• `/leaderboard` — Посмотреть топ участников и свое место в рейтинге.\n"
-        "• `/review` — Работа над ошибками (бот пришлет до 5 вопросов, на которые вы ответили неверно, чтобы вы могли исправить результат).\n\n"
-        "🧠 *Готовы проверить себя?* Переходите к последнему дайджесту в канале и жмите кнопку прохождения!"
+        "• `/review` — Работа над ошибками (бот пришлет до 5 вопросов из комментариев, на которые вы ответили неверно, чтобы вы могли исправить результат).\n\n"
+        "🧠 *Готовы проверить себя?* Переходите к последнему дайджесту в канале и оставляйте свои ответы в комментариях!"
     )
     await message.answer(text, parse_mode="Markdown")
 
@@ -98,75 +98,15 @@ async def handle_start(message: Message, command: CommandObject, session: AsyncS
             await session.flush()
 
     # 2. Check if there are arguments
-    if not args or not args.startswith("quiz_"):
-        await send_welcome_message(message)
-        return
-
-    # 3. Extract digest_id
-    try:
-        digest_id = int(args.split("_")[1])
-    except (IndexError, ValueError):
-        await message.answer("❌ Некорректный формат ссылки на квиз.")
-        return
-
-    # 4. Fetch the quiz
-    quiz_stmt = select(Quiz).where(Quiz.digest_id == digest_id)
-    quiz = (await session.execute(quiz_stmt)).scalar_one_or_none()
-    if not quiz:
-        await message.answer("❌ Квиз не найден или еще не создан.")
-        return
-
-    # 5. Check if the user already took this quiz
-    existing_answers_stmt = (
-        select(UserAnswer)
-        .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
-        .where(
-            UserAnswer.user_id == user.id,
-            UserAnswer.quiz_id == quiz.id,
-            PollMapping.original_user_answer_id.is_(None)
+    if args and args.startswith("quiz_"):
+        await message.answer(
+            "❌ *Прохождение квизов в боте отключено.*\n\n"
+            "Все квизы теперь проходят прямо в комментариях под дайджестами в канале! Перейдите в канал и нажмите кнопку *«💬 Пройти в комментариях»* под интересующим вас дайджестом.",
+            parse_mode="Markdown"
         )
-    )
-    existing_answers = (await session.execute(existing_answers_stmt)).scalars().all()
-    total_count = len(quiz.questions)
-
-    if existing_answers:
-        answered_count = len(existing_answers)
-        if answered_count >= total_count:
-            correct_count = sum(1 for ans in existing_answers if ans.is_correct)
-            await message.answer(
-                f"ℹ️ *Вы уже прошли этот квиз!*\n\n"
-                f"📊 Ваш результат: *{correct_count}* из *{total_count}* правильных ответов.\n"
-                f"🏆 Ваш общий рейтинг: *{user.global_score}* баллов.",
-                parse_mode="Markdown"
-            )
-            return
-        else:
-            # Started but not finished, resume
-            await message.answer(
-                f"ℹ️ *Вы уже начали этот квиз!*\n"
-                f"Продолжаем прохождение. Вопрос *{answered_count + 1}* из *{total_count}*:",
-                parse_mode="Markdown"
-            )
-            await send_quiz_question(tg_user_id, quiz, answered_count, bot, session)
-            await session.commit()
-            return
-
-    # 6. Send quiz questions
-    await message.answer(
-        "🧠 *Начинаем квиз!*\n"
-        "Ответьте на следующие вопросы. Удачи!",
-        parse_mode="Markdown"
-    )
-    await asyncio.sleep(0.5)
-
-    if not quiz.questions:
-        await message.answer("❌ В этом квизе нет вопросов.")
         return
 
-    # Send the first question
-    await send_quiz_question(tg_user_id, quiz, 0, bot, session)
-    await session.commit()
-    logger.info(f"User {tg_user_id} started quiz for digest #{digest_id}")
+    await send_welcome_message(message)
 
 @router.message(Command("help"))
 async def handle_help(message: Message, session: AsyncSession):

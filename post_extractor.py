@@ -65,7 +65,11 @@ class DigestPipeline:
         await self.tg_parser.start()
 
         try:
-            for channel in self.tg_sources:
+            for idx, channel in enumerate(self.tg_sources):
+                if idx > 0:
+                    delay = random.uniform(5.0, 10.0)
+                    logger.info(f"Спим {delay:.2f} секунд перед парсингом следующего канала для избежания Flood Wait...")
+                    await asyncio.sleep(delay)
                 logger.info(f"Парсим канал: {channel}")
                 posts = await self.tg_parser.parse_channel(channel)
 
@@ -98,7 +102,7 @@ class DigestPipeline:
         finally:
             await self.tg_parser.close()
 
-    async def run_llm_processing_job(self, schema: dict):
+    async def run_llm_processing_job(self, schema: dict, max_posts: Optional[int] = None):
         """Берет сырые посты из БД и прогоняет через LLM."""
         logger.info("Запуск джобы обработки LLM...")
 
@@ -107,10 +111,15 @@ class DigestPipeline:
         seven_days_ago = datetime.now(tz) - timedelta(days=7)
 
         # Ищем посты, которые мы еще не анализировали и которые не старше 7 дней
+        # Сортируем по убыванию даты, чтобы в первую очередь обрабатывать самые новые посты
         stmt = select(Post).where(
             Post.is_ad_or_trash.is_(None),
             Post.post_date >= seven_days_ago
-        )
+        ).order_by(Post.post_date.desc())
+
+        if max_posts is not None:
+            stmt = stmt.limit(max_posts)
+
         result = await self.db_session.execute(stmt)
         unprocessed_posts = result.scalars().all()
 

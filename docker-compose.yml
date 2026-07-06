@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,7 +28,7 @@ services:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +37,7 @@ services:
     image: teddysun/xray:latest
     container_name: xray_client
     ports:
-      - "1080:1080"
+      - "1081:1081"
     restart: unless-stopped
     volumes:
       - ./config/config.json:/etc/xray/config.json:ro
@@ -52,7 +52,7 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=db  
+      - DB_HOST=db
       - REDIS_HOST=redis
       - PROXY_HOST=xray-client
     volumes:
@@ -71,7 +71,7 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=db  
+      - DB_HOST=db
       - REDIS_HOST=redis
       - PROXY_HOST=xray-client
     volumes:
