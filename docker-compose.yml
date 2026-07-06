@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
     image: redis:alpine
     container_name: digest_redis
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
