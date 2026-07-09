@@ -64,39 +64,44 @@ class DigestPipeline:
     async def run_parsing_job(self):
         """Пробегает по каналам и сохраняет новые сообщения в БД."""
         logger.info("Запуск джобы парсинга Telegram...")
-        await self.tg_parser.start()
 
         try:
+            await self.tg_parser.start()
             for idx, channel in enumerate(self.tg_sources):
                 if idx > 0:
                     delay = random.uniform(5.0, 10.0)
                     logger.info(f"Спим {delay:.2f} секунд перед парсингом следующего канала для избежания Flood Wait...")
                     await asyncio.sleep(delay)
                 logger.info(f"Парсим канал: {channel}")
-                posts = await self.tg_parser.parse_channel(channel)
+                
+                try:
+                    posts = await self.tg_parser.parse_channel(channel)
 
-                for post_data in posts:
-                    link = post_data["link"]
+                    for post_data in posts:
+                        link = post_data["link"]
 
-                    if await self._is_cached(link):
-                        continue
-                    
-                    if await self._is_in_db(link):
-                        await self._cache_url(link) 
-                        continue
+                        if await self._is_cached(link):
+                            continue
+                        
+                        if await self._is_in_db(link):
+                            await self._cache_url(link) 
+                            continue
 
-                    new_post = Post(
-                        link=link,
-                        title=f"Post from {channel}", 
-                        content=post_data["text"],
-                        post_date=post_data["date"],
-                        media_path=post_data.get("media_path")
-                    )
-                    self.db_session.add(new_post)
-                    
-                    await self.db_session.commit() 
-                    await self._cache_url(link)
-                    logger.info(f"Сохранен новый сырой пост: {link}")
+                        new_post = Post(
+                            link=link,
+                            title=f"Post from {channel}", 
+                            content=post_data["text"],
+                            post_date=post_data["date"],
+                            media_path=post_data.get("media_path")
+                        )
+                        self.db_session.add(new_post)
+                        
+                        await self.db_session.commit() 
+                        await self._cache_url(link)
+                        logger.info(f"Сохранен новый сырой пост: {link}")
+                except Exception as channel_err:
+                    logger.error(f"Ошибка при обработке канала {channel}: {channel_err}")
+                    await self.db_session.rollback()
 
         except Exception as e:
             logger.error(f"Ошибка во время парсинга: {e}")

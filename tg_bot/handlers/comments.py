@@ -77,7 +77,9 @@ async def handle_forwarded_post(message: Message, session: AsyncSession, bot: Bo
                 quiz_id=quiz.id,
                 correct_option_id=new_correct_id,
                 question_index=idx,
-                is_comments_poll=True
+                is_comments_poll=True,
+                chat_id=str(poll_message.chat.id),
+                message_id=poll_message.message_id
             )
             session.add(poll_mapping)
             logger.info(f"Created comments poll mapping {idx} for quiz {quiz.id} (poll_id: {poll_message.poll.id})")

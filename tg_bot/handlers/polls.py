@@ -114,6 +114,63 @@ async def handle_poll_answer(poll_answer: PollAnswer, session: AsyncSession, bot
 
         await session.commit()
         logger.info(f"User {username} answered comments poll {poll_id}. Correct: {is_correct}. Score: {user.global_score}")
+
+        # Проверяем завершение квиза в комментариях
+        answers_count_stmt = (
+            select(func.count(UserAnswer.id))
+            .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+            .where(
+                UserAnswer.user_id == user.id,
+                UserAnswer.quiz_id == mapping.quiz_id,
+                PollMapping.is_comments_poll == True
+            )
+        )
+        answered_count = (await session.execute(answers_count_stmt)).scalar() or 0
+
+        # Получаем исходный квиз, чтобы узнать общее число вопросов
+        quiz_stmt = select(Quiz).where(Quiz.id == mapping.quiz_id)
+        quiz = (await session.execute(quiz_stmt)).scalar_one_or_none()
+
+        if quiz and quiz.questions:
+            total_questions = len(quiz.questions)
+            if answered_count == total_questions:
+                # Квиз полностью пройден в комментариях. Получаем все ответы пользователя
+                all_answers_stmt = (
+                    select(UserAnswer)
+                    .join(PollMapping, UserAnswer.telegram_poll_id == PollMapping.poll_id)
+                    .where(
+                        UserAnswer.user_id == user.id,
+                        UserAnswer.quiz_id == quiz.id,
+                        PollMapping.is_comments_poll == True
+                    )
+                )
+                all_answers = (await session.execute(all_answers_stmt)).scalars().all()
+                correct_count = sum(1 for ans in all_answers if ans.is_correct)
+
+                # Формируем упоминание (username или ссылка с именем)
+                if username:
+                    mention = f"@{username}"
+                else:
+                    first_name = poll_answer.user.first_name or "Участник"
+                    mention = f'<a href="tg://user?id={tg_user_id}">{first_name}</a>'
+
+                text = (
+                    f"🎉 {mention}, вы прошли квиз в комментариях!\n\n"
+                    f"📊 Результат: <b>{correct_count}</b> из <b>{total_questions}</b> правильных ответов.\n"
+                    f"🏆 Ваш общий рейтинг: <b>{user.global_score}</b> баллов."
+                )
+
+                if mapping.chat_id and mapping.message_id:
+                    try:
+                        await bot.send_message(
+                            chat_id=int(mapping.chat_id),
+                            text=text,
+                            parse_mode="HTML",
+                            reply_to_message_id=mapping.message_id
+                        )
+                        logger.info(f"Sent quiz result for user {username} to comments thread {mapping.chat_id} replying to {mapping.message_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке результата в комментарии для {username}: {e}")
         return
 
     # 5. Проверяем правильность ответа

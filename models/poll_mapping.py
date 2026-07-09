@@ -17,3 +17,5 @@ class PollMapping(Base, TimeStampMixin):
         Integer, ForeignKey("user_answers.id", ondelete="CASCADE"), nullable=True
     )
     is_comments_poll: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    chat_id: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    message_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
