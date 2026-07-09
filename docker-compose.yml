@@ -40,6 +40,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      apm-server-quiz:
+        condition: service_started
+    labels:
+      co.elastic.logs/enabled: "true"
+      co.elastic.logs/json.keys_under_root: "true"
+      co.elastic.logs/json.add_error_key: "true"
+      co.elastic.logs/json.message_key: "message"
     env_file:
       - .env
     environment:
@@ -62,6 +69,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      apm-server-quiz:
+        condition: service_started
+    labels:
+      co.elastic.logs/enabled: "true"
+      co.elastic.logs/json.keys_under_root: "true"
+      co.elastic.logs/json.add_error_key: "true"
+      co.elastic.logs/json.message_key: "message"
     env_file:
       - .env
     environment:
@@ -74,9 +88,119 @@ services:
       - default
       - proxy-network
 
+  # =============================================================================
+  # Dedicated Isolated Observability Stack (ELK)
+  # =============================================================================
+
+  elasticsearch-quiz:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: elasticsearch_quiz
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - ELASTIC_PASSWORD=${ELASTIC_QUIZ_PASSWORD}
+    volumes:
+      - elasticsearch_quiz_data:/usr/share/elasticsearch/data
+    ports:
+      - "127.0.0.1:9201:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_QUIZ_PASSWORD} http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kibana-quiz:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: kibana_quiz
+    depends_on:
+      elasticsearch-quiz:
+        condition: service_healthy
+      es-setup-quiz:
+        condition: service_completed_successfully
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-quiz:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_QUIZ_SYSTEM_PASSWORD}
+      - SERVER_PUBLICBASEURL=http://localhost:5602
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=a021ebf74d14681a6499f2a5f4ff230b3545f39ad8d24ba85dcabe6f88ee4a59
+      - XPACK_REPORTING_ENCRYPTIONKEY=a021ebf74d14681a6499f2a5f4ff230b3545f39ad8d24ba85dcabe6f88ee4a59
+    ports:
+      - "127.0.0.1:5602:5601"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  apm-server-quiz:
+    image: docker.elastic.co/apm/apm-server:8.13.4
+    container_name: apm_server_quiz
+    restart: unless-stopped
+    depends_on:
+      elasticsearch-quiz:
+        condition: service_healthy
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_QUIZ_PASSWORD}
+      - ELASTIC_APM_SECRET_TOKEN=${ELASTIC_APM_QUIZ_SECRET_TOKEN}
+    command: >
+      apm-server -e
+        -E apm-server.rum.enabled=true
+        -E setup.template.settings.index.number_of_replicas=0
+        -E apm-server.kibana.enabled=true
+        -E apm-server.kibana.host=kibana-quiz:5601
+        -E apm-server.kibana.username=elastic
+        -E apm-server.kibana.password=${ELASTIC_QUIZ_PASSWORD}
+        -E output.elasticsearch.hosts=["elasticsearch-quiz:9200"]
+        -E output.elasticsearch.username=elastic
+        -E output.elasticsearch.password=${ELASTIC_QUIZ_PASSWORD}
+        -E apm-server.auth.secret_token=${ELASTIC_APM_QUIZ_SECRET_TOKEN}
+    ports:
+      - "127.0.0.1:8201:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  filebeat-quiz:
+    image: docker.elastic.co/beats/filebeat:8.13.4
+    container_name: filebeat_quiz
+    user: root
+    restart: unless-stopped
+    depends_on:
+      elasticsearch-quiz:
+        condition: service_healthy
+    environment:
+      - DOCKER_API_VERSION=1.44
+      - ELASTIC_QUIZ_PASSWORD=${ELASTIC_QUIZ_PASSWORD}
+    volumes:
+      - ./config/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: filebeat -e --strict.perms=false
+
+  es-setup-quiz:
+    image: curlimages/curl:latest
+    container_name: es_setup_quiz
+    restart: "no"
+    depends_on:
+      elasticsearch-quiz:
+        condition: service_healthy
+    environment:
+      - ELASTIC_QUIZ_PASSWORD=${ELASTIC_QUIZ_PASSWORD}
+      - KIBANA_QUIZ_SYSTEM_PASSWORD=${KIBANA_QUIZ_SYSTEM_PASSWORD}
+    volumes:
+      - ./config/elasticsearch/setup.sh:/setup.sh:ro
+    command: sh /setup.sh
+
 volumes:
   postgres_data:
   redis_data:
+  elasticsearch_quiz_data:
 
 networks:
   proxy-network:
