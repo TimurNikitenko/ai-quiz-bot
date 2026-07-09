@@ -7,6 +7,7 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import redis.asyncio as redis
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from .telegram_parser import TGParser
@@ -14,6 +15,12 @@ from .llm_layer import MessageExtractor
 from .post_extractor import DigestPipeline
 from .prompts import post_schema
 from .sources import TG_SOURCES
+
+from models.user import User
+from models.user_answers import UserAnswer
+from models.post import Post
+from models.digest import Digest
+from utils.logger import setup_json_logging
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +32,13 @@ async def run_daily_parsing():
         db_pass = os.getenv("DB_PASSWORD")
         db_name = os.getenv("DB_NAME")
         db_host = os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("DB_PORT", "5432")
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_pass = os.getenv("REDIS_PASSWORD")
         proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
         proxy_port = int(os.getenv("PROXY_PORT", 1080))
         
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
+        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
         engine = create_async_engine(db_url, echo=False)
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
         
@@ -71,6 +79,11 @@ async def run_daily_parsing():
             )
             await pipeline.run_parsing_job()
             
+        # Set Redis key on success
+        today = datetime.now().date().isoformat()
+        await redis_client.set("parser:last_success_date", today, ex=172800)
+        logger.info(f"Парсинг за {today} успешно завершен и записан в стейт Redis")
+
         await redis_client.close()
         await engine.dispose()
         logger.info("Ежедневный парсинг успешно завершен.")
@@ -85,12 +98,13 @@ async def run_weekly_digest():
         db_pass = os.getenv("DB_PASSWORD")
         db_name = os.getenv("DB_NAME")
         db_host = os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("DB_PORT", "5432")
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_pass = os.getenv("REDIS_PASSWORD")
         proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
         proxy_port = int(os.getenv("PROXY_PORT", 1080))
         
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
+        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
         engine = create_async_engine(db_url, echo=False)
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
         
@@ -145,9 +159,100 @@ async def run_weekly_digest():
         logger.error(f"Ошибка во время еженедельной сборки дайджеста: {e}", exc_info=True)
 
 
+async def run_metrics_snapshot():
+    logger.info("Запуск сбора метрик базы данных...")
+    try:
+        db_user = os.getenv("DB_USER")
+        db_pass = os.getenv("DB_PASSWORD")
+        db_name = os.getenv("DB_NAME")
+        db_host = os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("DB_PORT", "5432")
+        
+        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+        engine = create_async_engine(db_url, echo=False)
+        AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+        
+        async with AsyncSessionLocal() as session:
+            # 1. Users count
+            total_users = await session.scalar(select(func.count(User.id))) or 0
+            
+            # 2. Answers stats
+            total_answers = await session.scalar(select(func.count(UserAnswer.id))) or 0
+            correct_answers = await session.scalar(select(func.count(UserAnswer.id)).where(UserAnswer.is_correct == True)) or 0
+            accuracy_rate = (correct_answers / total_answers * 100) if total_answers > 0 else 0.0
+            
+            # 3. Posts stats
+            total_posts = await session.scalar(select(func.count(Post.id))) or 0
+            ad_trash_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash == True)) or 0
+            clean_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash == False)) or 0
+            unprocessed_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash.is_(None))) or 0
+            
+            # 4. Digest count
+            total_digests = await session.scalar(select(func.count(Digest.id))) or 0
+            
+            # 5. Token consumption
+            post_tokens = await session.scalar(select(func.sum(Post.tokens))) or 0
+            digest_tokens = await session.scalar(select(func.sum(Digest.total_tokens))) or 0
+            total_tokens = (post_tokens or 0) + (digest_tokens or 0)
+
+            logger.info(
+                "Ежедневный снимок метрик базы данных успешно собран.",
+                extra={
+                    "event_type": "db_metrics_snapshot",
+                    "metric_users_total": total_users,
+                    "metric_answers_total": total_answers,
+                    "metric_answers_correct": correct_answers,
+                    "metric_accuracy_percentage": round(accuracy_rate, 2),
+                    "metric_posts_total": total_posts,
+                    "metric_posts_ad_trash": ad_trash_posts,
+                    "metric_posts_clean": clean_posts,
+                    "metric_posts_unprocessed": unprocessed_posts,
+                    "metric_digests_total": total_digests,
+                    "metric_tokens_posts_sum": post_tokens or 0,
+                    "metric_tokens_digests_sum": digest_tokens or 0,
+                    "metric_tokens_total": total_tokens,
+                }
+            )
+
+        await engine.dispose()
+    except Exception as e:
+        logger.error(f"Ошибка во время сбора метрик: {e}", exc_info=True)
+
+
+async def check_and_catchup():
+    """Проверяет по ключам в редисе, был ли сегодня прогон парсинга и если не был, то он стартовал."""
+    logger.info("Проверка необходимости catch-up для парсинга...")
+    try:
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_pass = os.getenv("REDIS_PASSWORD")
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=6379,
+            password=redis_pass,
+            decode_responses=True
+        )
+        today = datetime.now().date().isoformat()
+        last_success_date = await redis_client.get("parser:last_success_date")
+        await redis_client.close()
+
+        if not last_success_date or last_success_date != today:
+            logger.info("Сегодняшний парсинг не выполнялся. Запускаем фоновый catch-up...")
+            asyncio.create_task(run_daily_parsing())
+        else:
+            logger.info(f"Парсинг на сегодня ({today}) уже был успешно выполнен ранее.")
+    except Exception as e:
+        logger.error(f"Ошибка при проверке catch-up: {e}", exc_info=True)
+
+
 async def main():
     from dotenv import load_dotenv
     load_dotenv()
+    
+    # Initialize structured JSON logging
+    setup_json_logging(service_name="ai-quiz-bot-scheduler")
+    
+    # Run catch-up check asynchronously on startup
+    await check_and_catchup()
     
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     
@@ -173,10 +278,22 @@ async def main():
         misfire_grace_time=3600,
     )
     
+    # Daily DB metrics snapshot at 0:05 am Moscow time
+    scheduler.add_job(
+        run_metrics_snapshot,
+        trigger=CronTrigger(hour=0, minute=5, timezone="Europe/Moscow"),
+        id="db_metrics_snapshot_job",
+        name="Daily database metrics snapshot (0:05 MSK)",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+    
     scheduler.start()
     logger.info("Scheduler started.")
     logger.info("Next Daily parsing run: %s", scheduler.get_job("daily_parsing_job").next_run_time)
     logger.info("Next Weekly digest run: %s", scheduler.get_job("weekly_digest_job").next_run_time)
+    logger.info("Next DB metrics snapshot run: %s", scheduler.get_job("db_metrics_snapshot_job").next_run_time)
     
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -190,8 +307,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
     asyncio.run(main())
