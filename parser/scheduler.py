@@ -156,6 +156,11 @@ async def run_weekly_digest():
             # Then assemble digest and publish
             await pipeline.run_digest_assembly_job()
             
+        # Set Redis key on success
+        today = datetime.now().date().isoformat()
+        await redis_client.set("parser:last_weekly_digest_success_date", today, ex=604800 * 2)
+        logger.info(f"Еженедельная обработка LLM и сборка дайджеста за {today} успешно завершена и записана в стейт Redis")
+
         await redis_client.close()
         await engine.dispose()
         logger.info("Еженедельная обработка LLM и сборка дайджеста успешно завершена.")
@@ -224,8 +229,8 @@ async def run_metrics_snapshot():
 
 
 async def check_and_catchup():
-    """Проверяет по ключам в редисе, был ли сегодня прогон парсинга и если не был, то он стартовал."""
-    logger.info("Проверка необходимости catch-up для парсинга...")
+    """Проверяет по ключам в редисе, были ли прогоны парсинга и еженедельного дайджеста, и запускает catch-up при необходимости."""
+    logger.info("Проверка необходимости catch-up...")
     try:
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_pass = os.getenv("REDIS_PASSWORD")
@@ -235,15 +240,51 @@ async def check_and_catchup():
             password=redis_pass,
             decode_responses=True
         )
-        today = datetime.now().date().isoformat()
+        
+        from datetime import timedelta, timezone
+        moscow_tz = timezone(timedelta(hours=3))
+        now_moscow = datetime.now(moscow_tz)
+        today = now_moscow.date().isoformat()
+        
         last_success_date = await redis_client.get("parser:last_success_date")
+        last_weekly_success_date = await redis_client.get("parser:last_weekly_digest_success_date")
         await redis_client.close()
 
+        # 1. Catch-up check for Daily Parsing
         if not last_success_date or last_success_date != today:
             logger.info("Сегодняшний парсинг не выполнялся. Запускаем фоновый catch-up...")
             asyncio.create_task(run_daily_parsing())
         else:
             logger.info(f"Парсинг на сегодня ({today}) уже был успешно выполнен ранее.")
+
+        # 2. Catch-up check for Weekly LLM / Digest job
+        # Находим дату последнего запланированного запуска в воскресенье в 12:00 MSK
+        days_since_sunday = (now_moscow.weekday() - 6) % 7
+        last_sunday = now_moscow - timedelta(days=days_since_sunday)
+        last_sunday_target = last_sunday.replace(hour=12, minute=0, second=0, microsecond=0)
+        
+        if now_moscow.weekday() == 6 and now_moscow < last_sunday_target:
+            last_sunday_target -= timedelta(days=7)
+            
+        last_scheduled_date = last_sunday_target.date()
+        
+        need_weekly_catchup = False
+        if not last_weekly_success_date:
+            need_weekly_catchup = True
+        else:
+            try:
+                success_date = datetime.fromisoformat(last_weekly_success_date).date()
+                if success_date < last_scheduled_date:
+                    need_weekly_catchup = True
+            except ValueError:
+                need_weekly_catchup = True
+                
+        if need_weekly_catchup:
+            logger.info(f"Еженедельный дайджест за последний цикл (от {last_scheduled_date}) не выполнялся. Запускаем фоновый catch-up...")
+            asyncio.create_task(run_weekly_digest())
+        else:
+            logger.info(f"Еженедельный дайджест за последний цикл (последний запуск/чек: {last_weekly_success_date}) уже выполнен.")
+            
     except Exception as e:
         logger.error(f"Ошибка при проверке catch-up: {e}", exc_info=True)
 
