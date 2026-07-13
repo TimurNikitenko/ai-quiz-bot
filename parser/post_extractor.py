@@ -117,9 +117,9 @@ class DigestPipeline:
         tz = timezone(timedelta(hours=3))
         seven_days_ago = datetime.now(tz) - timedelta(days=7)
 
-        # Ищем посты, которые мы еще не анализировали и которые не старше 7 дней
+        # Ищем ID постов, которые мы еще не анализировали и которые не старше 7 дней
         # Сортируем по убыванию даты, чтобы в первую очередь обрабатывать самые новые посты
-        stmt = select(Post).where(
+        stmt = select(Post.id).where(
             Post.is_ad_or_trash.is_(None),
             Post.post_date >= seven_days_ago
         ).order_by(Post.post_date.desc())
@@ -128,20 +128,27 @@ class DigestPipeline:
             stmt = stmt.limit(max_posts)
 
         result = await self.db_session.execute(stmt)
-        unprocessed_posts = result.scalars().all()
+        unprocessed_post_ids = result.scalars().all()
 
-        if not unprocessed_posts:
+        if not unprocessed_post_ids:
             logger.info("Нет новых постов для обработки.")
             return
 
-        logger.info(f"Найдено {len(unprocessed_posts)} постов для анализа.")
+        logger.info(f"Найдено {len(unprocessed_post_ids)} постов для анализа.")
 
-        for post in unprocessed_posts:
+        for post_id in unprocessed_post_ids:
+            # Получаем свежий объект Post из сессии по его ID.
+            # Это предотвращает MissingGreenlet ошибки при доступе к полям после коммита или роллбэка предыдущей итерации.
+            post = await self.db_session.get(Post, post_id)
+            if not post:
+                continue
+
+            post_link = post.link
             try:
                 # Генерируем промпт из твоего llm_layer
                 prompt = self.extractor.build_message_extraction_prompt(
                     text=post.content, 
-                    url=post.link, 
+                    url=post_link, 
                     reference_date=post.post_date
                 )
                 
@@ -154,7 +161,7 @@ class DigestPipeline:
                 )
 
                 if not response:
-                    logger.warning(f"LLM вернула пустой ответ для {post.link}")
+                    logger.warning(f"LLM вернула пустой ответ для {post_link}")
                     post.is_ad_or_trash = True # Помечаем как мусор, чтобы не зацикливаться
                     await self.db_session.commit()
                     continue
@@ -171,13 +178,13 @@ class DigestPipeline:
                 post.model_name = self.extractor.model_names[0]
 
                 await self.db_session.commit()
-                logger.info(f"Пост {post.link} успешно обработан. Токенов: {tokens}")
+                logger.info(f"Пост {post_link} успешно обработан. Токенов: {tokens}")
                 
                 # Задержка, чтобы не биться в Rate Limits
                 await asyncio.sleep(2) 
 
             except Exception as e:
-                logger.error(f"Ошибка при обработке поста {post.id} LLM: {e}")
+                logger.error(f"Ошибка при обработке поста {post_id} LLM: {e}")
                 await self.db_session.rollback()
 
     async def run_digest_assembly_job(self, max_posts_in_digest: int = 5, max_questions: int = 5):

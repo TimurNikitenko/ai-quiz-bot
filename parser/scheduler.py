@@ -63,10 +63,12 @@ async def run_daily_parsing():
             download_media=download_media
         )
         
+        proxy_url = f"socks5://{proxy_host}:{proxy_port}" if proxy_host else None
+        
         extractor = MessageExtractor(
             model_names=["deepseek/deepseek-v4-pro"], 
             api_keys=[openrouter_key],
-            proxy=None
+            proxy=proxy_url
         )
         
         async with AsyncSessionLocal() as session:
@@ -129,10 +131,12 @@ async def run_weekly_digest():
             download_media=download_media
         )
         
+        proxy_url = f"socks5://{proxy_host}:{proxy_port}" if proxy_host else None
+        
         extractor = MessageExtractor(
             model_names=["deepseek/deepseek-v4-pro"], 
             api_keys=[openrouter_key],
-            proxy=None
+            proxy=proxy_url
         )
         
         max_posts_env = os.getenv("MAX_POSTS_TO_PROCESS_LLM")

@@ -33,5 +33,6 @@ TG_SOURCES = [
     'the_ai_architect',
     'new_yorko_times',
     'jdata_blog',
-    'ai_newz'
 ]
+
+TG_SOURCES = list(set(TG_SOURCES))
