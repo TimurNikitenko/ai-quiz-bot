@@ -14,7 +14,7 @@ processors:
       when:
         not:
           equals:
-            container.labels.com.docker.compose.project: "ai-quiz-bot"
+            container.labels.com_docker_compose_project: "ai-quiz-bot"
 
 output.elasticsearch:
   hosts: ["http://elasticsearch-quiz:9200"]
