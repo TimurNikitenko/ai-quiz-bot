@@ -12,9 +12,18 @@ processors:
       host: "unix:///var/run/docker.sock"
   - drop_event:
       when:
-        not:
-          equals:
-            container.labels.com_docker_compose_project: "ai-quiz-bot"
+        or:
+          - not:
+              equals:
+                container.labels.com_docker_compose_project: "ai-quiz-bot"
+          - equals:
+              container.name: "filebeat_quiz"
+          - equals:
+              container.name: "elasticsearch_quiz"
+          - equals:
+              container.name: "kibana_quiz"
+          - equals:
+              container.name: "apm_server_quiz"
 
 output.elasticsearch:
   hosts: ["http://elasticsearch-quiz:9200"]
