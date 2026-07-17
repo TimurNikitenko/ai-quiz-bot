@@ -2,14 +2,12 @@ TG_SOURCES = [
     'tips_ai',
     'ai_machinelearning_big_data', # также есть дайджесты    
     'neuro_channel',
-    'ml_product',
     'pro_ai_news',  
     'ai_newz',
     'data_secrets',
     'seeallochnaya',
     'lovedeathtransformers',
     'addmeto',
-    'tips_ai',
     'maxvotek',
     'kantor_ai',
     'mountainai_info',
@@ -21,7 +19,6 @@ TG_SOURCES = [
     'AGI_and_RL',
     'rybolos_channel',
     'oulenspiegel_channel',
-    'ai_machinelearning_big_data',
     'reliable_ml',
     'not_boring_ds',
     'adel_and_ml',
@@ -33,6 +30,20 @@ TG_SOURCES = [
     'the_ai_architect',
     'new_yorko_times',
     'jdata_blog',
+    'nadlskom',
+    'dealerAI',
+    'llm_under_hood',
+    'doomgrad',
+    'aaanalytics',
+    'dzis_science',
+    'data_science_winners',
+    'abstractDL',
+    'blognot',
+    'stuffyNLP',
+    'MLunderhood',
+    'zheltyi_ai'
+    
 ]
+# дата крайнего ревью - 17.07
 
 TG_SOURCES = list(set(TG_SOURCES))
