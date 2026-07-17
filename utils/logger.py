@@ -118,7 +118,7 @@ RESERVED_LOG_RECORD_ATTRS = {
 
 
 class JSONFormatter(logging.Formatter):
-    def __init__(self, service_name: str = "ai-quiz-bot"):
+    def __init__(self, service_name: str = "yt"):
         super().__init__()
         self.service_name = service_name
 

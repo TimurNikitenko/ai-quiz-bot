@@ -109,7 +109,7 @@ class DigestPipeline:
         finally:
             await self.tg_parser.close()
 
-    async def run_llm_processing_job(self, schema: dict, max_posts: Optional[int] = None):
+    async def run_llm_processing_job(self, schema: dict, max_posts: Optional[int] = None, model_name: Optional[str] = None):
         """Берет сырые посты из БД и прогоняет через LLM."""
         logger.info("Запуск джобы обработки LLM...")
 
@@ -157,7 +157,8 @@ class DigestPipeline:
                 response = await asyncio.to_thread(
                     self.extractor.call_llm, 
                     user_prompt=prompt, 
-                    schema=schema
+                    schema=schema,
+                    model_name=model_name
                 )
 
                 if not response:
@@ -174,8 +175,8 @@ class DigestPipeline:
                 post.facts = llm_data.get("facts", [])
                 post.questions = llm_data.get("questions", [])
                 post.tokens = tokens
-                # Записываем, какая модель это обработала (берем первый ключ из пула)
-                post.model_name = self.extractor.model_names[0]
+                # Записываем, какая модель это обработала
+                post.model_name = model_name or (self.extractor.model_names[0] if self.extractor.model_names else "deepseek/deepseek-v4-pro")
 
                 await self.db_session.commit()
                 logger.info(f"Пост {post_link} успешно обработан. Токенов: {tokens}")
@@ -187,7 +188,7 @@ class DigestPipeline:
                 logger.error(f"Ошибка при обработке поста {post_id} LLM: {e}")
                 await self.db_session.rollback()
 
-    async def run_digest_assembly_job(self, max_posts_in_digest: int = 5, max_questions: int = 5):
+    async def run_digest_assembly_job(self, max_posts_in_digest: Optional[int] = None, max_questions: int = 5, model_name: Optional[str] = None):
         """Собирает готовые посты в дайджест и формирует квиз."""
         logger.info("Запуск джобы сборки дайджеста...")
 
@@ -199,7 +200,10 @@ class DigestPipeline:
             Post.is_ad_or_trash == False,
             Post.digest_id.is_(None),
             Post.post_date >= seven_days_ago
-        ).order_by(Post.post_date.desc()).limit(max_posts_in_digest)
+        ).order_by(Post.post_date.desc())
+        
+        if max_posts_in_digest is not None:
+            stmt = stmt.limit(max_posts_in_digest)
         
         result = await self.db_session.execute(stmt)
         ready_posts = result.scalars().all()
@@ -253,6 +257,7 @@ class DigestPipeline:
             response = await asyncio.to_thread(
                     self.extractor.call_llm, 
                     user_prompt=prompt, 
+                    model_name=model_name
                 ) 
             
             if not response:
@@ -264,7 +269,8 @@ class DigestPipeline:
             new_digest = Digest(
                 total_tokens=total_tokens + tokens,
                 content=digest_content,
-                facts=all_facts
+                facts=all_facts,
+                model_name=model_name or (self.extractor.model_names[0] if self.extractor.model_names else "deepseek/deepseek-v4-pro")
             )
             self.db_session.add(new_digest)
             await self.db_session.flush() 

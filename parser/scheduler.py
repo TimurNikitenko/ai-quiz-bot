@@ -131,10 +131,12 @@ async def run_weekly_digest():
             download_media=download_media
         )
         
+        cheap_model = os.getenv("LLM_CHEAP_MODEL", "google/gemini-2.5-flash")
+        expensive_model = os.getenv("LLM_EXPENSIVE_MODEL", "deepseek/deepseek-v4-pro")
         proxy_url = f"socks5://{proxy_host}:{proxy_port}" if proxy_host else None
-        
+
         extractor = MessageExtractor(
-            model_names=["deepseek/deepseek-v4-pro"], 
+            model_names=[cheap_model, expensive_model], 
             api_keys=[openrouter_key],
             proxy=proxy_url
         )
@@ -151,10 +153,10 @@ async def run_weekly_digest():
                 redis_client=redis_client
             )
             
-            # First run LLM processing
-            await pipeline.run_llm_processing_job(schema=post_schema, max_posts=max_posts)
-            # Then assemble digest and publish
-            await pipeline.run_digest_assembly_job()
+            # First run LLM processing using the cheap model
+            await pipeline.run_llm_processing_job(schema=post_schema, max_posts=max_posts, model_name=cheap_model)
+            # Then assemble digest and publish using the expensive model (with no limits on post count)
+            await pipeline.run_digest_assembly_job(max_posts_in_digest=None, model_name=expensive_model)
             
         # Set Redis key on success
         today = datetime.now().date().isoformat()

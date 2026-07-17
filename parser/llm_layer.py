@@ -58,6 +58,7 @@ class MessageExtractor:
         user_prompt,
         system_prompt: str = "",
         schema: dict = {},
+        model_name: str = None,
     ):
         messages = [
             {"role": "system", "content": system_prompt},
@@ -71,7 +72,7 @@ class MessageExtractor:
 
         try:
             working_key = next(self.keys_iterator)
-            model_name = self.model_names[0]
+            model_name = model_name or (self.model_names[0] if self.model_names else "deepseek/deepseek-v4-pro")
 
             response_format = None
 
