@@ -1,0 +1,35 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USER }}
+          key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PROD_SERVER_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Navigating to application directory..."
+            cd ${{ secrets.PROD_APP_DIR || '/home/timur/providers_searcher' }}
+
+            echo "📥 Pulling latest changes from main branch..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "🐳 Rebuilding and force-recreating all application containers..."
+            docker compose up -d --build --force-recreate --remove-orphans
+
+            echo "🧹 Cleaning up unused Docker images..."
+            docker image prune -f
+
+            echo "✅ Deployment completed successfully!"
