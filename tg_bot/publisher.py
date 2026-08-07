@@ -87,13 +87,18 @@ async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Opti
                 digest = result.scalar()
                 
                 if digest:
+                    if digest.digest_type == "simple":
+                        channel_id = os.getenv("CHANNEL_ID_SIMPLE") or os.getenv("CHANNEL_ID")
+                    else:
+                        channel_id = os.getenv("CHANNEL_ID_TECH") or os.getenv("CHANNEL_ID")
+
                     pub_stmt = select(PublishedDigest).where(
                         PublishedDigest.digest_id == digest.id,
                         PublishedDigest.chat_id == str(channel_id)
                     )
                     existing_pub = (await session.execute(pub_stmt)).scalar()
                     if existing_pub:
-                        logger.info(f"Дайджест #{digest.id} уже был опубликован в канале {channel_id}. Пропускаем.")
+                        logger.info(f"Дайджест #{digest.id} ({digest.digest_type}) уже был опубликован в канале {channel_id}. Пропускаем.")
                         return
             else:
                 stmt = (

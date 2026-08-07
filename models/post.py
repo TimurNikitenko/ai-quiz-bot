@@ -13,15 +13,35 @@ class Post(Base, TimeStampMixin):
     digest_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("digests.id", ondelete="SET NULL"), nullable=True
     )
+    tech_digest_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("digests.id", ondelete="SET NULL"), nullable=True
+    )
+    simple_digest_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("digests.id", ondelete="SET NULL"), nullable=True
+    )
     link: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     post_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     is_ad_or_trash: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_tech_relevant: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    is_simple_relevant: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     facts: Mapped[list] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )
     questions: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
+    tech_facts: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
+    simple_facts: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
+    tech_questions: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
+    simple_questions: Mapped[list] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )
     llm_analysis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -31,4 +51,4 @@ class Post(Base, TimeStampMixin):
     model_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     media_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    digest = relationship("Digest", back_populates="posts")
+    digest = relationship("Digest", foreign_keys=[digest_id], back_populates="posts")

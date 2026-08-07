@@ -9,7 +9,7 @@ from datetime import datetime
 
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 
 from models import Post, Digest, Quiz
 from .telegram_parser import TGParser
@@ -159,8 +159,6 @@ class DigestPipeline:
                     reference_date=post.post_date
                 )
                 
-                # В llm_layer.call_llm у тебя нет async, поэтому оборачиваем в to_thread,
-                # если библиотека OpenAI вызывается синхронно.
                 response = await asyncio.to_thread(
                     self.extractor.call_llm, 
                     user_prompt=prompt, 
@@ -170,23 +168,36 @@ class DigestPipeline:
 
                 if not response:
                     logger.warning(f"LLM вернула пустой ответ для {post_link}")
-                    post.is_ad_or_trash = True # Помечаем как мусор, чтобы не зацикливаться
+                    post.is_ad_or_trash = True
                     await self.db_session.commit()
                     continue
 
                 llm_data, tokens = response
 
-                # Обновляем запись в БД
-                post.is_ad_or_trash = llm_data.get("is_ad_or_trash", True)
+                # Обновляем запись в БД для двух форматов
+                is_tech = llm_data.get("is_tech_relevant", False)
+                is_simple = llm_data.get("is_simple_relevant", False)
+                is_trash = llm_data.get("is_ad_or_trash", True) or (not is_tech and not is_simple)
+
+                post.is_ad_or_trash = is_trash
+                post.is_tech_relevant = is_tech
+                post.is_simple_relevant = is_simple
                 post.llm_analysis = llm_data.get("analysis", "")
-                post.facts = llm_data.get("facts", [])
-                post.questions = llm_data.get("questions", [])
+                
+                post.tech_facts = llm_data.get("tech_facts", [])
+                post.simple_facts = llm_data.get("simple_facts", [])
+                post.tech_questions = llm_data.get("tech_questions", [])
+                post.simple_questions = llm_data.get("simple_questions", [])
+
+                # Совместимость с наследуемыми полями
+                post.facts = post.tech_facts or post.simple_facts or llm_data.get("facts", [])
+                post.questions = post.tech_questions or post.simple_questions or llm_data.get("questions", [])
+
                 post.tokens = tokens
-                # Записываем, какая модель это обработала
                 post.model_name = model_name or (self.extractor.model_names[0] if self.extractor.model_names else "deepseek/deepseek-v4-pro")
 
                 await self.db_session.commit()
-                logger.info(f"Пост {post_link} успешно обработан. Токенов: {tokens}")
+                logger.info(f"Пост {post_link} успешно обработан (tech={is_tech}, simple={is_simple}). Токенов: {tokens}")
                 
                 # Задержка, чтобы не биться в Rate Limits
                 await asyncio.sleep(2) 
@@ -197,22 +208,35 @@ class DigestPipeline:
 
     async def run_digest_assembly_job(
         self,
+        digest_type: str = "tech",
         is_sunday_quiz: bool = False,
         max_posts_in_digest: Optional[int] = None,
         max_questions: int = 5,
         model_name: Optional[str] = None
     ):
-        """Собирает готовые посты в дайджест и (по воскресеньям) формирует еженедельный квиз через LLM."""
-        logger.info(f"Запуск джобы сборки дайджеста (is_sunday_quiz={is_sunday_quiz})...")
+        """Собирает готовые посты в дайджест заданного формата (tech/simple) и формирует квиз."""
+        logger.info(f"Запуск джобы сборки дайджеста format={digest_type} (is_sunday_quiz={is_sunday_quiz})...")
 
         from datetime import datetime, timedelta, timezone
         tz = timezone(timedelta(hours=3))
         seven_days_ago = datetime.now(tz) - timedelta(days=7)
 
-        stmt = select(Post).where(
-            Post.is_ad_or_trash == False,
-            Post.digest_id.is_(None)
-        ).order_by(Post.post_date.desc())
+        if digest_type == "simple":
+            stmt = select(Post).where(
+                or_(
+                    Post.is_simple_relevant == True,
+                    and_(Post.is_ad_or_trash == False, Post.is_simple_relevant.is_(None))
+                ),
+                Post.simple_digest_id.is_(None)
+            ).order_by(Post.post_date.desc())
+        else:
+            stmt = select(Post).where(
+                or_(
+                    Post.is_tech_relevant == True,
+                    and_(Post.is_ad_or_trash == False, Post.is_tech_relevant.is_(None))
+                ),
+                Post.tech_digest_id.is_(None)
+            ).order_by(Post.post_date.desc())
         
         if max_posts_in_digest is not None:
             stmt = stmt.limit(max_posts_in_digest)
@@ -221,16 +245,17 @@ class DigestPipeline:
         ready_posts = result.scalars().all()
 
         if not ready_posts:
-            logger.info("Нет готовых постов для сборки дайджеста.")
+            logger.info(f"Нет готовых постов для сборки {digest_type}-дайджеста.")
             return
 
-        logger.info(f"Собираем дайджест из {len(ready_posts)} постов.")
+        logger.info(f"Собираем {digest_type}-дайджест из {len(ready_posts)} постов.")
 
         all_facts = []
         total_tokens = 0
 
         for post in ready_posts:
-            for fact in post.facts:
+            p_facts = (post.simple_facts if digest_type == "simple" else post.tech_facts) or post.facts
+            for fact in p_facts:
                 fact_with_link = f"{fact} [Источник]({post.link})"
                 all_facts.append(fact_with_link)
 
@@ -239,18 +264,32 @@ class DigestPipeline:
 
         selected_questions = []
         if is_sunday_quiz:
-            logger.info("Сбор кандидатов для еженедельного квиза за последние 7 дней...")
-            quiz_posts_stmt = select(Post).where(
-                Post.is_ad_or_trash == False,
-                Post.post_date >= seven_days_ago
-            )
+            logger.info(f"Сбор кандидатов для еженедельного {digest_type}-квиза за последние 7 дней...")
+            if digest_type == "simple":
+                quiz_posts_stmt = select(Post).where(
+                    or_(
+                        Post.is_simple_relevant == True,
+                        and_(Post.is_ad_or_trash == False, Post.is_simple_relevant.is_(None))
+                    ),
+                    Post.post_date >= seven_days_ago
+                )
+            else:
+                quiz_posts_stmt = select(Post).where(
+                    or_(
+                        Post.is_tech_relevant == True,
+                        and_(Post.is_ad_or_trash == False, Post.is_tech_relevant.is_(None))
+                    ),
+                    Post.post_date >= seven_days_ago
+                )
+
             quiz_posts_res = await self.db_session.execute(quiz_posts_stmt)
             weekly_posts = quiz_posts_res.scalars().all()
 
             candidate_questions = []
             for wp in weekly_posts:
-                if wp.questions:
-                    candidate_questions.extend(wp.questions)
+                q_list = (wp.simple_questions if digest_type == "simple" else wp.tech_questions) or wp.questions
+                if q_list:
+                    candidate_questions.extend(q_list)
 
             if candidate_questions:
                 models_to_try = []
@@ -278,21 +317,21 @@ class DigestPipeline:
                             candidate_sel = quiz_data.get("questions", [])
                             if candidate_sel:
                                 selected_questions = candidate_sel
-                                logger.info(f"LLM ({m}) успешно отобрала {len(selected_questions)} вопросов для еженедельного квиза.")
+                                logger.info(f"LLM ({m}) успешно отобрала {len(selected_questions)} вопросов для {digest_type}-квиза.")
                                 break
                     except Exception as q_err:
-                        logger.error(f"Ошибка при LLM-отборе еженедельного квиза моделью {m}: {q_err}", exc_info=True)
+                        logger.error(f"Ошибка при LLM-отборе {digest_type}-квиза моделью {m}: {q_err}", exc_info=True)
 
             if not selected_questions:
-                logger.warning("Все попытки LLM-отбора вопросов еженедельного квиза вернули пустой результат.")
-
+                logger.warning(f"Все попытки LLM-отбора вопросов для {digest_type}-квиза вернули пустой результат.")
 
         try:
             facts = "\n\n".join([f"• {fact}" for fact in all_facts])
             prompt = self.extractor.build_message_extraction_prompt(
                 text=facts, 
                 digest=True,
-                has_quiz=is_sunday_quiz
+                has_quiz=is_sunday_quiz,
+                digest_type=digest_type
             )
                 
             models_to_try = []
@@ -316,10 +355,10 @@ class DigestPipeline:
                         used_model = m
                         break
                 except Exception as d_err:
-                    logger.warning(f"Модель {m} при генерации дайджеста вернула ошибку: {d_err}")
+                    logger.warning(f"Модель {m} при генерации {digest_type}-дайджеста вернула ошибку: {d_err}")
 
             if not response or not response[0] or not response[0].strip():
-                logger.warning("Все попытки LLM сгенерировать дайджест вернули пустой контент.")
+                logger.warning(f"Все попытки LLM сгенерировать {digest_type}-дайджест вернули пустой контент.")
                 return
 
             digest_content, tokens = response
@@ -328,6 +367,7 @@ class DigestPipeline:
                 total_tokens=total_tokens + tokens,
                 content=digest_content,
                 facts=all_facts,
+                digest_type=digest_type,
                 model_name=used_model or (self.extractor.model_names[0] if self.extractor.model_names else "google/gemini-2.5-flash")
             )
             self.db_session.add(new_digest)
@@ -335,6 +375,10 @@ class DigestPipeline:
 
             for post in ready_posts:
                 post.digest_id = new_digest.id
+                if digest_type == "simple":
+                    post.simple_digest_id = new_digest.id
+                else:
+                    post.tech_digest_id = new_digest.id
 
             if is_sunday_quiz and selected_questions:
                 new_quiz = Quiz(
@@ -344,7 +388,7 @@ class DigestPipeline:
                 self.db_session.add(new_quiz)
 
             await self.db_session.commit()
-            logger.info(f"Успешно создан Дайджест #{new_digest.id} (Квиз вопросов: {len(selected_questions)}).")
+            logger.info(f"Успешно создан Дайджест #{new_digest.id} ({digest_type}) (Квиз вопросов: {len(selected_questions)}).")
 
             # Auto-publishing flow
             auto_publish = os.getenv("AUTO_PUBLISH", "True").lower() in ("true", "1", "yes")

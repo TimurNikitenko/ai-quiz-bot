@@ -9,13 +9,14 @@ class Digest(Base, TimeStampMixin):
     __tablename__ = "digests"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    digest_type: Mapped[str] = mapped_column(String(50), nullable=False, default="tech", server_default="tech")
     total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     model_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     facts: Mapped[list] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )
-    posts = relationship("Post", back_populates="digest")
+    posts = relationship("Post", foreign_keys="Post.digest_id", back_populates="digest")
     quiz = relationship("Quiz", back_populates="digest", uselist=False)
     is_published: Mapped[bool] = mapped_column(default=False, server_default="false")
 

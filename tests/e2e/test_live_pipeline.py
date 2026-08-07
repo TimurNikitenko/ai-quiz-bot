@@ -29,8 +29,10 @@ async def test_live_full_pipeline(db_session, redis_client):
     if not all([tg_api_id, tg_api_hash, openrouter_key, test_channel_id]):
         pytest.skip("Пропуск E2E теста: отсутствуют необходимые API ключи в .env")
 
-    # Сразу перенаправляем CHANNEL_ID на TEST_CHANNEL_ID для изолированности всего E2E прогона
+    # Сразу перенаправляем каналы на TEST_CHANNEL_ID для изолированности всего E2E прогона
     os.environ["CHANNEL_ID"] = test_channel_id
+    os.environ["CHANNEL_ID_TECH"] = test_channel_id
+    os.environ["CHANNEL_ID_SIMPLE"] = test_channel_id
 
     # Проверка валидности OpenRouter API ключа
     from openai import OpenAI
