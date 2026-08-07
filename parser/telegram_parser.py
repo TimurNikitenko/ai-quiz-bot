@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class TGParser:
-    def __init__(self, api_id: int, api_hash: str, proxy_host: str, proxy_port: int, session_name: str = "event_session", download_media: bool = True):
-        proxy_tuple = ("socks5", proxy_host, proxy_port)
+    def __init__(self, api_id: int, api_hash: str, proxy_host: str = None, proxy_port: int = None, session_name: str = "event_session", download_media: bool = True):
+        proxy_tuple = ("socks5", proxy_host, proxy_port) if (proxy_host and proxy_port) else None
         self.client = TelegramClient(
             session_name,
             api_id,

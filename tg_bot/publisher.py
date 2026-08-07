@@ -59,9 +59,19 @@ async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Opti
 
         # Инициализация БД
         db_user, db_pass, db_name = os.getenv("DB_USER"), os.getenv("DB_PASSWORD"), os.getenv("DB_NAME")
-        db_host = os.getenv("DB_HOST", "localhost")
+        db_host = os.getenv("TEST_DB_HOST") or os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("TEST_DB_PORT") or os.getenv("DB_PORT", "5432")
+
+        # Если хост 'postgres' не резолвится (запуск локально вне docker), используем localhost:5434
+        import socket
+        try:
+            socket.gethostbyname(db_host)
+        except socket.gaierror:
+            logger.info(f"Хост БД '{db_host}' недоступен в DNS, переключаемся на localhost:5434")
+            db_host = "localhost"
+            db_port = os.getenv("TEST_DB_PORT", "5434")
         
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
+        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
         engine = create_async_engine(db_url)
         AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -155,6 +165,7 @@ async def publish_digest_by_id(digest_id: Optional[int] = None, photo_path: Opti
 
     except Exception as e:
         logger.error(f"Ошибка при публикации: {e}")
+        raise e
     finally:
         await bot.session.close()
         logger.info("Сессия бота закрыта.")

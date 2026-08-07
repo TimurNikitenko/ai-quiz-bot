@@ -21,9 +21,17 @@ from openai import (
 )
 
 import datetime
-from .prompts import post_prompt_template, digest_assembly_prompt
+from .prompts import (
+    post_prompt_template,
+    digest_assembly_prompt_template,
+    weekly_quiz_selection_prompt,
+    weekly_quiz_selection_schema
+)
 
 logger = logging.getLogger(__name__)
+
+# [rest of class remains the same until prompt builders]
+
 
 class MessageExtractor:
     """Слой для общения с OpenRouter"""
@@ -197,7 +205,7 @@ class MessageExtractor:
  
 
     def build_message_extraction_prompt(
-        self, text: str, url: str = "", reference_date=None, digest=False
+        self, text: str, url: str = "", reference_date=None, digest=False, has_quiz=False
     ) -> str:
         if isinstance(reference_date, datetime.datetime):
             ref_str = reference_date.strftime("%Y-%m-%d (%A)")
@@ -209,10 +217,16 @@ class MessageExtractor:
         if not digest:
             prompt = post_prompt_template.format(
                 post_text=text
-                )
+            )
         else: 
-            prompt = digest_assembly_prompt.format(raw_facts=text)
+            cta_rule = "5. В конце дайджеста добавь призыв к действию: предложи подписчикам пройти квиз для проверки знаний (квиз будет прикреплен к посту)." if has_quiz else ""
+            prompt = digest_assembly_prompt_template.format(cta_rule=cta_rule, raw_facts=text)
         return prompt
+
+    def build_weekly_quiz_selection_prompt(self, candidate_questions: list[dict]) -> str:
+        formatted_questions = json.dumps(candidate_questions, ensure_ascii=False, indent=2)
+        return weekly_quiz_selection_prompt.format(candidate_questions=formatted_questions)
+
 
     def _deep_clean(self, data: Any) -> Any:
         if isinstance(data, dict):
