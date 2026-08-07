@@ -9,6 +9,11 @@ from parser.post_extractor import DigestPipeline
 from parser.llm_layer import MessageExtractor
 
 
+@pytest.fixture(autouse=True)
+def mock_publisher(mocker):
+    return mocker.patch("tg_bot.publisher.publish_digest_by_id")
+
+
 @pytest.fixture
 def mock_extractor(mocker):
     extractor = MessageExtractor(

@@ -295,22 +295,40 @@ class DigestPipeline:
                 has_quiz=is_sunday_quiz
             )
                 
-            response = await asyncio.to_thread(
-                self.extractor.call_llm, 
-                user_prompt=prompt, 
-                model_name=model_name
-            ) 
-            
-            digest_content, tokens = response
-            if not digest_content or not digest_content.strip():
-                logger.warning("LLM вернула пустой контент для дайджеста.")
+            models_to_try = []
+            if model_name:
+                models_to_try.append(model_name)
+            for fallback_m in self.extractor.model_names:
+                if fallback_m not in models_to_try:
+                    models_to_try.append(fallback_m)
+
+            response = None
+            used_model = model_name
+            for m in models_to_try:
+                try:
+                    res = await asyncio.to_thread(
+                        self.extractor.call_llm, 
+                        user_prompt=prompt, 
+                        model_name=m
+                    )
+                    if res and res[0] and res[0].strip():
+                        response = res
+                        used_model = m
+                        break
+                except Exception as d_err:
+                    logger.warning(f"Модель {m} при генерации дайджеста вернула ошибку: {d_err}")
+
+            if not response or not response[0] or not response[0].strip():
+                logger.warning("Все попытки LLM сгенерировать дайджест вернули пустой контент.")
                 return
+
+            digest_content, tokens = response
 
             new_digest = Digest(
                 total_tokens=total_tokens + tokens,
                 content=digest_content,
                 facts=all_facts,
-                model_name=model_name or (self.extractor.model_names[0] if self.extractor.model_names else "deepseek/deepseek-v4-pro")
+                model_name=used_model or (self.extractor.model_names[0] if self.extractor.model_names else "google/gemini-2.5-flash")
             )
             self.db_session.add(new_digest)
             await self.db_session.flush() 

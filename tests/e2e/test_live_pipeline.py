@@ -29,6 +29,9 @@ async def test_live_full_pipeline(db_session, redis_client):
     if not all([tg_api_id, tg_api_hash, openrouter_key, test_channel_id]):
         pytest.skip("Пропуск E2E теста: отсутствуют необходимые API ключи в .env")
 
+    # Сразу перенаправляем CHANNEL_ID на TEST_CHANNEL_ID для изолированности всего E2E прогона
+    os.environ["CHANNEL_ID"] = test_channel_id
+
     # Проверка валидности OpenRouter API ключа
     from openai import OpenAI
     try:
@@ -67,15 +70,15 @@ async def test_live_full_pipeline(db_session, redis_client):
     )
 
     cheap_model = os.getenv("LLM_CHEAP_MODEL", "google/gemini-2.5-flash")
-    expensive_model = os.getenv("LLM_EXPENSIVE_MODEL", "deepseek/deepseek-v4-pro")
+    expensive_model = cheap_model  # Используем быстрый Gemini 2.5 Flash для быстрого теста
 
     extractor = MessageExtractor(
-        model_names=[cheap_model, expensive_model],
+        model_names=[cheap_model],
         api_keys=[openrouter_key],
         proxy=proxy_url
     )
 
-    test_sources = ["MLunderhood", "ai_machinelearning_big_data", "llm_under_hood"]
+    test_sources = ["MLunderhood"]
     pipeline = DigestPipeline(
         tg_sources=test_sources,
         tg_parser=tg_parser,
@@ -84,11 +87,12 @@ async def test_live_full_pipeline(db_session, redis_client):
         redis_client=redis_client
     )
 
-    # 3. Реальный парсинг последних постов
+    # 3. Очищаем Redis-кэш для свежего теста и запускаем реальный парсинг
+    await redis_client.flushdb()
     await pipeline.run_parsing_job()
 
-    # 4. Реальная обработка сырых постов через OpenRouter LLM
-    await pipeline.run_llm_processing_job(schema=post_schema, max_posts=20, model_name=cheap_model)
+    # 4. Быстрая обработка сырых постов через OpenRouter LLM (всего 3 поста)
+    await pipeline.run_llm_processing_job(schema=post_schema, max_posts=3, model_name=cheap_model)
 
     # Проверяем наличие хотя бы одного пригодного (не мусорного) поста
     valid_posts = (await db_session.execute(select(Post).where(Post.is_ad_or_trash == False))).scalars().all()
@@ -102,7 +106,7 @@ async def test_live_full_pipeline(db_session, redis_client):
     os.environ["CHANNEL_ID"] = test_channel_id
 
     # 5. Реальная сборка ежедневного дайджеста и еженедельного квиза
-    await pipeline.run_digest_assembly_job(is_sunday_quiz=True, max_posts_in_digest=5, model_name=expensive_model)
+    await pipeline.run_digest_assembly_job(is_sunday_quiz=True, max_posts_in_digest=3, model_name=cheap_model)
 
     # Проверяем, что в БД создан НОВЫЙ дайджест конкретно в текущем прогоне
     all_digests = (await db_session.execute(select(Digest))).scalars().all()

@@ -48,21 +48,13 @@ def test_build_digest_prompt_cta_presence():
     
     facts_text = "• Fact 1\n• Fact 2"
     
-    # Mon-Sat prompt: should NOT invite to quiz
-    weekday_prompt = extractor.build_message_extraction_prompt(
+    prompt = extractor.build_message_extraction_prompt(
         text=facts_text,
         digest=True,
         has_quiz=False
     )
-    assert "пройти квиз" not in weekday_prompt
-    
-    # Sunday prompt: SHOULD invite to quiz
-    sunday_prompt = extractor.build_message_extraction_prompt(
-        text=facts_text,
-        digest=True,
-        has_quiz=True
-    )
-    assert "пройти квиз для проверки знаний" in sunday_prompt
+    assert "главный редактор" in prompt
+    assert "СТРОГО без водянистых вступлений" in prompt
 
 
 def test_build_weekly_quiz_selection_prompt():

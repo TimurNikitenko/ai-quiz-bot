@@ -219,8 +219,7 @@ class MessageExtractor:
                 post_text=text
             )
         else: 
-            cta_rule = "5. В конце дайджеста добавь призыв к действию: предложи подписчикам пройти квиз для проверки знаний (квиз будет прикреплен к посту)." if has_quiz else ""
-            prompt = digest_assembly_prompt_template.format(cta_rule=cta_rule, raw_facts=text)
+            prompt = digest_assembly_prompt_template.format(raw_facts=text)
         return prompt
 
     def build_weekly_quiz_selection_prompt(self, candidate_questions: list[dict]) -> str:
