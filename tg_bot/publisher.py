@@ -19,12 +19,17 @@ logger = logging.getLogger(__name__)
 def split_text(text: str, limit: int = 4000):
     """Нарезает текст на куски, стараясь не рвать строки."""
     chunks = []
+    if not text:
+        return chunks
     while len(text) > limit:
         split_at = text.rfind('\n', 0, limit)
         if split_at == -1: split_at = limit
-        chunks.append(text[:split_at])
+        chunk = text[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
         text = text[split_at:].lstrip()
-    chunks.append(text)
+    if text.strip():
+        chunks.append(text.strip())
     return chunks
 
 

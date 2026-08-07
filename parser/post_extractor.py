@@ -301,11 +301,10 @@ class DigestPipeline:
                 model_name=model_name
             ) 
             
-            if not response:
-                logger.warning(f"LLM вернула пустой ответ для дайджеста")
-                return
-
             digest_content, tokens = response
+            if not digest_content or not digest_content.strip():
+                logger.warning("LLM вернула пустой контент для дайджеста.")
+                return
 
             new_digest = Digest(
                 total_tokens=total_tokens + tokens,

@@ -98,6 +98,9 @@ async def test_live_full_pipeline(db_session, redis_client):
     # Сохраняем существующих ID дайджестов в БД до сборки
     initial_digest_ids = set((await db_session.execute(select(Digest.id))).scalars().all())
 
+    # Перенаправляем CHANNEL_ID на TEST_CHANNEL_ID для автопубликации во время сборки
+    os.environ["CHANNEL_ID"] = test_channel_id
+
     # 5. Реальная сборка ежедневного дайджеста и еженедельного квиза
     await pipeline.run_digest_assembly_job(is_sunday_quiz=True, max_posts_in_digest=5, model_name=expensive_model)
 
@@ -111,9 +114,3 @@ async def test_live_full_pipeline(db_session, redis_client):
 
     quizzes = (await db_session.execute(select(Quiz).where(Quiz.digest_id == created_digest.id))).scalars().all()
     assert len(quizzes) > 0, "Еженедельный квиз не был создан для нового дайджеста"
-
-    # 6. Реальная публикация в тестовый Telegram-канал
-    # Перенаправляем CHANNEL_ID на TEST_CHANNEL_ID
-    os.environ["CHANNEL_ID"] = test_channel_id
-
-    await publish_digest_by_id(digest_id=created_digest.id)
