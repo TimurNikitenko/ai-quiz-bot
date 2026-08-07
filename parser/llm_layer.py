@@ -24,6 +24,7 @@ import datetime
 from .prompts import (
     post_prompt_template,
     digest_assembly_prompt_template,
+    simple_digest_assembly_prompt_template,
     weekly_quiz_selection_prompt,
     weekly_quiz_selection_schema
 )
@@ -205,7 +206,7 @@ class MessageExtractor:
  
 
     def build_message_extraction_prompt(
-        self, text: str, url: str = "", reference_date=None, digest=False, has_quiz=False
+        self, text: str, url: str = "", reference_date=None, digest=False, has_quiz=False, digest_type: str = "tech"
     ) -> str:
         if isinstance(reference_date, datetime.datetime):
             ref_str = reference_date.strftime("%Y-%m-%d (%A)")
@@ -218,8 +219,11 @@ class MessageExtractor:
             prompt = post_prompt_template.format(
                 post_text=text
             )
-        else: 
-            prompt = digest_assembly_prompt_template.format(raw_facts=text)
+        else:
+            if digest_type == "simple":
+                prompt = simple_digest_assembly_prompt_template.format(raw_facts=text)
+            else:
+                prompt = digest_assembly_prompt_template.format(raw_facts=text)
         return prompt
 
     def build_weekly_quiz_selection_prompt(self, candidate_questions: list[dict]) -> str:

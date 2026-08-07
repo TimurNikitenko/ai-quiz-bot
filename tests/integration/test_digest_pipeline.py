@@ -39,16 +39,27 @@ async def test_run_llm_processing_job(db_session, redis_client, mock_extractor, 
     db_session.add(post)
     await db_session.commit()
 
-    # Mock call_llm response
+    # Mock call_llm response with dual format output
     llm_response = ({
         "is_ad_or_trash": False,
-        "facts": ["ИИ архитектуры эволюционируют"],
-        "questions": [{
-            "question": "В чем суть эволюции ИИ?",
+        "is_tech_relevant": True,
+        "is_simple_relevant": True,
+        "analysis": "Пост про архитектуру с понятным выхлопом.",
+        "tech_facts": ["В модели применен MLA-аттеншн."],
+        "simple_facts": ["Модель работает на 50% быстрее для пользователей."],
+        "tech_questions": [{
+            "question": "В чем плюс MLA?",
             "options": ["А", "Б", "В", "Г"],
             "correct_answer": "А",
             "explanation": "Объяснение",
-            "difficulty_level": "medium"
+            "difficulty_level": "hard"
+        }],
+        "simple_questions": [{
+            "question": "На сколько быстрее работает модель?",
+            "options": ["50%", "10%", "20%", "100%"],
+            "correct_answer": "50%",
+            "explanation": "Объяснение",
+            "difficulty_level": "easy"
         }]
     }, 150)
     
@@ -66,12 +77,14 @@ async def test_run_llm_processing_job(db_session, redis_client, mock_extractor, 
 
     updated_post = await db_session.get(Post, post.id)
     assert updated_post.is_ad_or_trash is False
-    assert len(updated_post.facts) == 1
-    assert len(updated_post.questions) == 1
+    assert updated_post.is_tech_relevant is True
+    assert updated_post.is_simple_relevant is True
+    assert len(updated_post.tech_facts) == 1
+    assert len(updated_post.simple_facts) == 1
     assert updated_post.tokens == 150
 
 
-async def test_run_digest_assembly_weekday(db_session, redis_client, mock_extractor, mocker):
+async def test_run_digest_assembly_tech_and_simple(db_session, redis_client, mock_extractor, mocker):
     tz = timezone(timedelta(hours=3))
     post = Post(
         id=102,
@@ -79,14 +92,16 @@ async def test_run_digest_assembly_weekday(db_session, redis_client, mock_extrac
         content="Пост буднего дня",
         post_date=datetime.now(tz),
         is_ad_or_trash=False,
-        facts=["Важный факт пн-сб"],
-        questions=[],
+        is_tech_relevant=True,
+        is_simple_relevant=True,
+        tech_facts=["Технический факт"],
+        simple_facts=["Простой факт"],
         link="https://t.me/test_chan/102"
     )
     db_session.add(post)
     await db_session.commit()
 
-    mocker.patch.object(mock_extractor, "call_llm", return_value=("Дайджест за день без квиза", 200))
+    mocker.patch.object(mock_extractor, "call_llm", return_value=("Дайджест за день", 200))
 
     pipeline = DigestPipeline(
         tg_sources=[],
@@ -96,20 +111,21 @@ async def test_run_digest_assembly_weekday(db_session, redis_client, mock_extrac
         redis_client=redis_client
     )
 
-    await pipeline.run_digest_assembly_job(is_sunday_quiz=False)
+    # 1. Run Tech assembly
+    await pipeline.run_digest_assembly_job(digest_type="tech", is_sunday_quiz=False)
+    
+    # 2. Run Simple assembly
+    await pipeline.run_digest_assembly_job(digest_type="simple", is_sunday_quiz=False)
 
     digests = (await db_session.execute(select(Digest))).scalars().all()
-    assert len(digests) == 1
-    new_digest = digests[0]
-    assert new_digest.content == "Дайджест за день без квиза"
+    assert len(digests) == 2
+    types = [d.digest_type for d in digests]
+    assert "tech" in types
+    assert "simple" in types
 
-    # Verify Post is linked to Digest
     updated_post = await db_session.get(Post, post.id)
-    assert updated_post.digest_id == new_digest.id
-
-    # Verify NO Quiz was created
-    quizzes = (await db_session.execute(select(Quiz))).scalars().all()
-    assert len(quizzes) == 0
+    assert updated_post.tech_digest_id is not None
+    assert updated_post.simple_digest_id is not None
 
 
 async def test_run_digest_assembly_sunday(db_session, redis_client, mock_extractor, mocker):

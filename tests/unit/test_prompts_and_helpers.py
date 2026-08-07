@@ -48,13 +48,23 @@ def test_build_digest_prompt_cta_presence():
     
     facts_text = "• Fact 1\n• Fact 2"
     
-    prompt = extractor.build_message_extraction_prompt(
+    tech_prompt = extractor.build_message_extraction_prompt(
         text=facts_text,
         digest=True,
-        has_quiz=False
+        has_quiz=False,
+        digest_type="tech"
     )
-    assert "главный редактор" in prompt
-    assert "СТРОГО без водянистых вступлений" in prompt
+    assert "главный редактор IT-канала для инженеров" in tech_prompt
+    assert "СТРОГО без водянистых вступлений" in tech_prompt
+
+    simple_prompt = extractor.build_message_extraction_prompt(
+        text=facts_text,
+        digest=True,
+        has_quiz=False,
+        digest_type="simple"
+    )
+    assert "шеф-редактор популярного издания" in simple_prompt
+    assert "простым, живым языком" in simple_prompt
 
 
 def test_build_weekly_quiz_selection_prompt():
