@@ -54,4 +54,7 @@ tzlocal==5.3.1
 tzdata==2025.3
 elastic-apm[asyncio]==6.23.0
 pre-commit
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-mock==3.14.0
 
