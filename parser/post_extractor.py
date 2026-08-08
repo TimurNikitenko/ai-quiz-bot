@@ -11,7 +11,7 @@ import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, and_
 
-from models import Post, Digest, Quiz
+from models import Post, Digest, Quiz, PublishedDigest
 from .telegram_parser import TGParser
 from .llm_layer import MessageExtractor
 from tg_bot.bot_instance import get_bot
@@ -221,13 +221,44 @@ class DigestPipeline:
         tz = timezone(timedelta(hours=3))
         seven_days_ago = datetime.now(tz) - timedelta(days=7)
 
+        # Вычисляем cutoff времени для постов (не более 24 часов или с момента последнего опубликованного дайджеста)
+        now_utc = datetime.now(timezone.utc)
+        twenty_four_hours_ago = now_utc - timedelta(hours=24)
+
+        last_published_stmt = (
+            select(PublishedDigest.created_at)
+            .join(Digest, PublishedDigest.digest_id == Digest.id)
+            .where(Digest.digest_type == digest_type)
+            .order_by(PublishedDigest.created_at.desc())
+            .limit(1)
+        )
+        last_pub_res = await self.db_session.execute(last_published_stmt)
+        last_pub_date = last_pub_res.scalar()
+
+        if not last_pub_date:
+            last_digest_stmt = (
+                select(Digest.created_at)
+                .where(Digest.digest_type == digest_type, Digest.is_published == True)
+                .order_by(Digest.created_at.desc())
+                .limit(1)
+            )
+            last_pub_date = (await self.db_session.execute(last_digest_stmt)).scalar()
+
+        if last_pub_date:
+            if last_pub_date.tzinfo is None:
+                last_pub_date = last_pub_date.replace(tzinfo=timezone.utc)
+            cutoff_date = max(last_pub_date, twenty_four_hours_ago)
+        else:
+            cutoff_date = twenty_four_hours_ago
+
         if digest_type == "simple":
             stmt = select(Post).where(
                 or_(
                     Post.is_simple_relevant == True,
                     and_(Post.is_ad_or_trash == False, Post.is_simple_relevant.is_(None))
                 ),
-                Post.simple_digest_id.is_(None)
+                Post.simple_digest_id.is_(None),
+                Post.post_date >= cutoff_date
             ).order_by(Post.post_date.desc())
         else:
             stmt = select(Post).where(
@@ -235,7 +266,8 @@ class DigestPipeline:
                     Post.is_tech_relevant == True,
                     and_(Post.is_ad_or_trash == False, Post.is_tech_relevant.is_(None))
                 ),
-                Post.tech_digest_id.is_(None)
+                Post.tech_digest_id.is_(None),
+                Post.post_date >= cutoff_date
             ).order_by(Post.post_date.desc())
         
         if max_posts_in_digest is not None:
@@ -420,7 +452,7 @@ class DigestPipeline:
                         # Send a simple notification about automatic publishing
                         await temp_bot.send_message(
                             chat_id=admin_id,
-                            text=f"🚀 *Дайджест #{new_digest.id} был успешно сформирован и автоматически опубликован в канале!*"
+                            text=f"🚀 *Дайджест #{new_digest.id} ({digest_type}) был успешно сформирован и автоматически опубликован в канале!*"
                         )
                     else:
                         # Send manual review options
@@ -433,7 +465,7 @@ class DigestPipeline:
                             
                             await temp_bot.send_message(
                                 chat_id=admin_id,
-                                text=f"🖼 *К черновику Дайджеста #{new_digest.id} прикреплены изображения ({len(photos)} шт.):*"
+                                text=f"🖼 *К черновику Дайджеста #{new_digest.id} ({digest_type}) прикреплены изображения ({len(photos)} шт.):*"
                             )
                             await temp_bot.send_media_group(chat_id=admin_id, media=media_group)
                             
@@ -473,7 +505,7 @@ class DigestPipeline:
                         
                         await temp_bot.send_message(
                             chat_id=admin_id,
-                            text=f"📝 *Черновик Дайджеста #{new_digest.id} готов для проверки!*"
+                            text=f"📝 *Черновик Дайджеста #{new_digest.id} ({digest_type}) готов для проверки!*"
                         )
                         
                         for idx, chunk in enumerate(chunks):

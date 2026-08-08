@@ -97,8 +97,28 @@ async def run_daily_digest_cycle():
             # 2. LLM Processing of unprocessed posts
             await pipeline.run_llm_processing_job(schema=post_schema, max_posts=max_posts, model_name=cheap_model)
 
-            # 3. Assemble Daily Digest (with weekly Quiz selection on Sunday)
-            await pipeline.run_digest_assembly_job(is_sunday_quiz=is_sunday, max_posts_in_digest=None, model_name=expensive_model)
+            # 3. Assemble Daily Digest (tech & simple) with weekly Quiz selection on Sunday
+            try:
+                logger.info("Запуск сборки tech-дайджеста...")
+                await pipeline.run_digest_assembly_job(
+                    digest_type="tech",
+                    is_sunday_quiz=is_sunday,
+                    max_posts_in_digest=None,
+                    model_name=expensive_model
+                )
+            except Exception as tech_err:
+                logger.error(f"Ошибка при сборке tech-дайджеста: {tech_err}", exc_info=True)
+
+            try:
+                logger.info("Запуск сборки simple-дайджеста...")
+                await pipeline.run_digest_assembly_job(
+                    digest_type="simple",
+                    is_sunday_quiz=is_sunday,
+                    max_posts_in_digest=None,
+                    model_name=expensive_model
+                )
+            except Exception as simple_err:
+                logger.error(f"Ошибка при сборке simple-дайджеста: {simple_err}", exc_info=True)
             
         today = now_moscow.date().isoformat()
         await redis_client.set("parser:last_daily_digest_date", today, ex=172800)
