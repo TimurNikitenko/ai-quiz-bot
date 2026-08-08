@@ -1,239 +1,31 @@
-post_prompt_template = """
-Ты — IT-журналист и методист. Твоя задача — обрабатывать новости из мира ИИ для ДВУХ РАЗНЫХ целевых аудиторий:
-1. Инженерная аудитория (Tech): разработчики, ML-инженеры, архитекторы (им важны архитектура, параметры, алгоритмы, производительность).
-2. Популярная аудитория (Simple): менеджеры, предприниматели, нетехнические читатели (им важны смыслы, продуктовая польза, влияние на жизнь и работу, практические кейсы).
+"""Модуль промптов и схем (проксирует пакеты schemas и prompts)."""
 
-КРИТЕРИИ ОЦЕНКИ РЕЛЕВАНТНОСТИ:
-- is_ad_or_trash = true: Текст — реклама, продажа курсов, агрессивный пиар Telegram-ботов без пользы, рефералки, или текст вообще не про ИИ.
-- is_tech_relevant = true: Текст содержит интересные технические детали, архитектурные новшества, бенчмарки или инженерные прорывы.
-- is_simple_relevant = true: Текст содержит понятную практическую ценность, продуктовые обновления, важные тренды ИИ для обычных людей или бизнеса.
-
-ПРАВИЛА ДЛЯ МУСОРА (Если is_ad_or_trash = true ИЛИ оба флага is_tech_relevant и is_simple_relevant = false):
-- В поле "analysis" напиши причину отсева.
-- Все массивы facts/questions должны быть пустыми [].
-
-ПРАВИЛА ГЕНЕРАЦИИ ТЕХНИЧЕСКИХ ФАКТОВ И ВОПРОСОВ (tech_facts / tech_questions):
-- Заполняются, только если is_tech_relevant = true (иначе пустой массив []).
-- tech_facts: 1-3 факта с акцентом на **архитектуру, формулы, параметры, названия алгоритмов и метрики**.
-- tech_questions: 1 вопрос на каждый факт. Сложность medium/hard, с проверкой понимания инженерами.
-
-ПРАВИЛА ГЕНЕРАЦИИ ПРОСТЫХ ФАКТОВ И ВОПРОСОВ (simple_facts / simple_questions):
-- Заполняются, только если is_simple_relevant = true (иначе пустой массив []).
-- simple_facts: 1-3 факта простым языком, без тяжелого сленга. Объясняй "на пальцах": **что изменилось для пользователей или бизнеса**.
-- simple_questions: 1 вопрос на каждый факт. Сложность easy/medium, доступные любому человеку.
-
-СТРОГИЕ ТЕХНИЧЕСКИЕ ЛИМИТЫ (Telegram API):
-- Текст вопросов: максимум 300 символов.
-- Варианты ответов (options): ровно 4 варианта, максимум 100 символов на каждый.
-- Пояснение (explanation): максимум 200 символов.
-
-ТРЕБОВАНИЯ К ЯЗЫКУ И КОДИРОВКЕ:
-- Пиши СТРОГО на русском языке UTF-8.
-
-Текст поста для анализа:
-{post_text}
-
-Твой ответ:
-"""
-
-post_schema = {
-    "type": "object",
-    "properties": {
-        "analysis": {
-            "type": "string",
-            "description": "Пошаговое обоснование оценок целевых аудиторий.",
-        },
-        "is_ad_or_trash": {
-            "type": "boolean",
-            "description": "true, если пост — спам/реклама/не про ИИ",
-        },
-        "is_tech_relevant": {
-            "type": "boolean",
-            "description": "true, если новость интересна инженерам и разработчикам",
-        },
-        "is_simple_relevant": {
-            "type": "boolean",
-            "description": "true, если новость интересна нетехническим людям и широкой аудитории",
-        },
-        "tech_facts": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "1-3 инженерных фактов с терминами и метриками",
-        },
-        "simple_facts": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "1-3 простых фактов про продуктовый смысл и пользу",
-        },
-        "tech_questions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string"},
-                    "options": {"type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 4, "maxItems": 4},
-                    "correct_answer": {"type": "string"},
-                    "explanation": {"type": "string", "maxLength": 200},
-                    "difficulty_level": {"type": "string", "enum": ["medium", "hard"]}
-                },
-                "additionalProperties": False,
-                "required": ["question", "options", "correct_answer", "difficulty_level", "explanation"],
-            },
-        },
-        "simple_questions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string"},
-                    "options": {"type": "array", "items": {"type": "string", "maxLength": 100}, "minItems": 4, "maxItems": 4},
-                    "correct_answer": {"type": "string"},
-                    "explanation": {"type": "string", "maxLength": 200},
-                    "difficulty_level": {"type": "string", "enum": ["easy", "medium"]}
-                },
-                "additionalProperties": False,
-                "required": ["question", "options", "correct_answer", "difficulty_level", "explanation"],
-            },
-        },
-    },
-    "required": [
-        "analysis",
-        "is_ad_or_trash",
-        "is_tech_relevant",
-        "is_simple_relevant",
-        "tech_facts",
-        "simple_facts",
-        "tech_questions",
-        "simple_questions",
-    ],
-    "additionalProperties": False,
-}
-
-
-digest_assembly_prompt_template = """
-Ты — главный редактор IT-канала для инженеров и разработчиков. Твоя задача — собрать структурированный технический дайджест новостей ИИ из списка фактов.
-
-ПРАВИЛА ОФОРМЛЕНИЯ:
-1. Отбери до 10 самых интересных фактов.
-2. Сгруппируй факты по смысловым блокам (например: "🤖 Агенты и инфраструктура", "🧠 Новые модели", "🛠 Тестирование и бенчмарки").
-3. СТРОГО без водянистых вступлений и приветствий. Начинай СРАЗУ с первого заголовка или смыслового блока новостей.
-4. СОХРАНИ всю техническую терминологию, архитектурные особенности и цифры.
-5. СТРОГО без шаблонных фраз и вопросов в конце дайджеста. Никаких призывов и анонсов.
-6. Пиши сразу суть.
-7. Сохранение ссылок: В переданных тебе фактах есть разметка `[Источник](url)`. Ты ОБЯЗАН сохранить эти гиперссылки в итоговом тексте, аккуратно вставляя их в конце каждого обработанного факта или абзаца. Не меняй сам URL!
-8. Избегай «простыней» текста. Разделяй абзацы пустой строкой.
-9. Используй списки с эмодзи-маркерами для визуальной структуры.
-10. Выделяй жирным шрифтом `**важные понятия, метрики и названия моделей**`.
-11. Разделяй тематические блоки четкими границами (например, пустой строкой `— — —`).
-
-ТРЕБОВАНИЯ К ЯЗЫКУ И КОДИРОВКЕ:
-- Пиши СТРОГО на русском языке UTF-8.
-
-Список фактов для сборки:
-{raw_facts}
-
-Выведи только готовый текст для Telegram-поста.
-"""
-
-simple_digest_assembly_prompt_template = """
-Ты — шеф-редактор популярного издания про технологии и жизнь. Твоя задача — собрать увлекательный, понятный дайджест новостей ИИ для широкой аудитории.
-
-ПРАВИЛА ОФОРМЛЕНИЯ:
-1. Отбери до 10 самых интересных новостей.
-2. Сгруппируй факты по смысловым блокам (например: "💡 Новые возможности", "🚀 Продукты и сервисы", "🌍 ИИ в жизни и бизнесе").
-3. СТРОГО без водянистых вступлений и приветствий. Начинай СРАЗУ с первого заголовка или смыслового блока новостей.
-4. Пиши простым, живым языком! Избегай сложного технического жаргона. Объясняй "на пальцах": как эта новость повлияет на пользователей, бизнес или повседневную жизнь.
-5. СТРОГО без шаблонных фраз и вопросов в конце дайджеста. Никаких призывов и анонсов.
-6. Пиши сразу суть.
-7. Сохранение ссылок: В переданных тебе фактах есть разметка `[Источник](url)`. Ты ОБЯЗАН сохранить эти гиперссылки в итоговом тексте, аккуратно вставляя их в конце каждого обработанного факта или абзаца. Не меняй сам URL!
-8. Избегай длинных монотонных текстов. Короткие яркие абзацы.
-9. Используй списки с эмодзи-маркерами (✨, 🔹, 🚀).
-10. Выделяй жирным шрифтом `**главные мысли, сервисы и факты**`.
-11. Разделяй тематические блоки границами (`— — —`).
-
-ТРЕБОВАНИЯ К ЯЗЫКУ И КОДИРОВКЕ:
-- Пиши СТРОГО на русском языке UTF-8.
-
-Список фактов для сборки:
-{raw_facts}
-
-Выведи только готовый текст для Telegram-поста.
-"""
-
-# Совместимость со старым вызовом
-digest_assembly_prompt = digest_assembly_prompt_template.format(
-    raw_facts="{raw_facts}"
+from schemas.llm_schemas import PostAnalysisSchema, WeeklyQuizSchema
+from prompts.templates import (
+    POST_PROMPT_TEMPLATE as post_prompt_template,
+    DIGEST_ASSEMBLY_PROMPT_TEMPLATE as digest_assembly_prompt_template,
+    SIMPLE_DIGEST_ASSEMBLY_PROMPT_TEMPLATE as simple_digest_assembly_prompt_template,
+    WEEKLY_QUIZ_SELECTION_PROMPT as weekly_quiz_selection_prompt,
+)
+from prompts.builders import (
+    build_post_analysis_prompt,
+    build_digest_prompt,
+    build_weekly_quiz_prompt,
 )
 
-weekly_quiz_selection_prompt = """
-Ты — главный методист и эксперт по обучению ИИ-технологиям.
-Ниже представлен список вопросов по новостям ИИ, собранных за всю прошедшую неделю.
+post_schema = PostAnalysisSchema.to_dict_schema()
+weekly_quiz_selection_schema = WeeklyQuizSchema.to_dict_schema()
+digest_assembly_prompt = digest_assembly_prompt_template.format(raw_facts="{raw_facts}")
 
-Твоя задача — отобрать и сформировать от 1 до 5 (максимум 5) САМЫХ ИНТЕРЕСНЫХ, ПОЗНАВАТЕЛЬНЫХ И КАЧЕСТВЕННЫХ вопросов для еженедельного квиза.
-
-КРИТЕРИИ ОТБОРА И ФОРМИРОВАНИЯ:
-1. Выбери от 1 до 5 вопросов (в зависимости от количества кандидатов), охватывающих самые важные темы недели.
-2. Исключи повторы и похожие по смыслу вопросы.
-3. Сбалансируй сложность вопросов (от easy до hard).
-4. Правильный ответ ("correct_answer") должен строго совпадать с одним из элементов массива "options".
-5. Текст вопросов и вариантов ответа должен быть понятным, грамотным и интересным.
-
-СТРОГИЕ ТЕХНИЧЕСКИЕ ЛИМИТЫ (Telegram API):
-- Текст вопроса ("question"): максимум 300 символов.
-- Варианты ответов ("options"): ровно 4 варианта, максимум 100 символов на каждый.
-- Пояснение ("explanation"): максимум 200 символов.
-
-Кандидаты в вопросы за неделю:
-{candidate_questions}
-
-Выдай результат строго по заданной JSON-схеме.
-"""
-
-weekly_quiz_selection_schema = {
-    "type": "object",
-    "properties": {
-        "analysis": {
-            "type": "string",
-            "description": "Пошаговое обоснование выбора 5 вопросов из списка кандидатов."
-        },
-        "questions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "Текст вопроса"
-                    },
-                    "options": {
-                        "type": "array",
-                        "items": {"type": "string", "maxLength": 100},
-                        "minItems": 4,
-                        "maxItems": 4
-                    },
-                    "correct_answer": {
-                        "type": "string",
-                        "description": "Правильный ответ (должен точно совпадать с одним из вариантов в options)"
-                    },
-                    "explanation": {
-                        "type": "string",
-                        "maxLength": 200,
-                        "description": "Краткое объяснение правильного ответа"
-                    },
-                    "difficulty_level": {
-                        "type": "string",
-                        "enum": ["easy", "medium", "hard"],
-                        "description": "Уровень сложности вопроса"
-                    }
-                },
-                "additionalProperties": False,
-                "required": ["question", "options", "correct_answer", "difficulty_level", "explanation"]
-            },
-            "minItems": 1,
-            "maxItems": 5
-        }
-    },
-    "required": ["analysis", "questions"],
-    "additionalProperties": False
-}
-
+__all__ = [
+    "post_prompt_template",
+    "digest_assembly_prompt_template",
+    "simple_digest_assembly_prompt_template",
+    "weekly_quiz_selection_prompt",
+    "post_schema",
+    "weekly_quiz_selection_schema",
+    "digest_assembly_prompt",
+    "build_post_analysis_prompt",
+    "build_digest_prompt",
+    "build_weekly_quiz_prompt",
+]
