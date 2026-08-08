@@ -4,13 +4,12 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any
 
-from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.post import Post
 from parser.llm_layer import MessageExtractor
-from core.constants import DEFAULT_WEEKLY_QUIZ_DAYS
+from utils.time_utils import get_seven_days_ago
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +32,7 @@ class PostLLMProcessorService:
         """Берет сырые посты из БД и прогоняет через LLM."""
         logger.info("Запуск джобы обработки LLM...")
 
-        tz = timezone(timedelta(hours=3))
-        seven_days_ago = datetime.now(tz) - timedelta(days=DEFAULT_WEEKLY_QUIZ_DAYS)
+        seven_days_ago = get_seven_days_ago()
 
         stmt = select(Post.id).where(
             Post.is_ad_or_trash.is_(None),

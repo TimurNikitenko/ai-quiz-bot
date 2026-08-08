@@ -4,7 +4,7 @@ import os
 import asyncio
 import logging
 from typing import Optional, List
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from sqlalchemy import select, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Post, Digest, Quiz, PublishedDigest
 from parser.llm_layer import MessageExtractor
 from tg_bot.bot_instance import get_bot
+from tg_bot.keyboards import get_digest_review_keyboard
 from core.config import get_settings
-from core.constants import DEFAULT_MAX_QUESTIONS_PER_QUIZ, DEFAULT_CUTOFF_HOURS, DEFAULT_WEEKLY_QUIZ_DAYS
+from core.constants import DEFAULT_MAX_QUESTIONS_PER_QUIZ, DEFAULT_CUTOFF_HOURS
+from utils.text_helpers import split_text
+from utils.time_utils import get_seven_days_ago, get_cutoff_time
+from utils.media_helpers import extract_valid_media_paths
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +34,6 @@ class DigestBuilderService:
 
     async def _get_cutoff_date(self, digest_type: str) -> datetime:
         """Вычисляет cutoff времени для постов (не более 24 часов или с момента последнего опубликованного дайджеста)."""
-        now_utc = datetime.now(timezone.utc)
-        twenty_four_hours_ago = now_utc - timedelta(hours=DEFAULT_CUTOFF_HOURS)
-
         last_published_stmt = (
             select(PublishedDigest.created_at)
             .join(Digest, PublishedDigest.digest_id == Digest.id)
@@ -52,11 +53,7 @@ class DigestBuilderService:
             )
             last_pub_date = (await self.db_session.execute(last_digest_stmt)).scalar()
 
-        if last_pub_date:
-            if last_pub_date.tzinfo is None:
-                last_pub_date = last_pub_date.replace(tzinfo=timezone.utc)
-            return max(last_pub_date, twenty_four_hours_ago)
-        return twenty_four_hours_ago
+        return get_cutoff_time(last_pub_date, hours=DEFAULT_CUTOFF_HOURS)
 
     async def run_digest_assembly_job(
         self,
@@ -69,8 +66,7 @@ class DigestBuilderService:
         """Собирает готовые посты в дайджест заданного формата (tech/simple) и формирует квиз."""
         logger.info(f"Запуск джобы сборки дайджеста format={digest_type} (is_sunday_quiz={is_sunday_quiz})...")
 
-        tz = timezone(timedelta(hours=3))
-        seven_days_ago = datetime.now(tz) - timedelta(days=DEFAULT_WEEKLY_QUIZ_DAYS)
+        seven_days_ago = get_seven_days_ago()
         cutoff_date = await self._get_cutoff_date(digest_type)
 
         if digest_type == "simple":
@@ -244,28 +240,24 @@ class DigestBuilderService:
             await self.db_session.commit()
             logger.info(f"Успешно создан Дайджест #{new_digest.id} ({digest_type}) (Квиз вопросов: {len(selected_questions)}).")
 
-            # Auto-publishing flow
             auto_publish = self.settings.auto_publish
-            photo_path = None
-            photos = [p.media_path for p in ready_posts if p.media_path and os.path.exists(p.media_path)]
+            photos = extract_valid_media_paths(ready_posts)
+            photo_path = photos[0] if photos else None
 
             if auto_publish:
                 logger.info(f"Запуск автопубликации для дайджеста #{new_digest.id}...")
                 try:
-                    if photos:
-                        photo_path = photos[0]
                     from tg_bot.publisher import publish_digest_by_id
                     await publish_digest_by_id(new_digest.id, photo_path=photo_path)
                     logger.info(f"Дайджест #{new_digest.id} успешно опубликован автоматически.")
                 except Exception as pub_err:
                     logger.error(f"Ошибка автопубликации дайджеста #{new_digest.id}: {pub_err}", exc_info=True)
 
-            # Notify Admin
             admin_id_str = self.settings.admin_telegram_id
             bot_token = self.settings.bot_token
             if admin_id_str and bot_token:
                 try:
-                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, FSInputFile
+                    from aiogram.types import InputMediaPhoto, FSInputFile
 
                     admin_id = int(admin_id_str)
                     temp_bot = get_bot()
@@ -276,45 +268,15 @@ class DigestBuilderService:
                             text=f"🚀 *Дайджест #{new_digest.id} ({digest_type}) был успешно сформирован и автоматически опубликован в канале!*"
                         )
                     else:
-                        buttons = []
                         if photos:
-                            media_group = []
-                            for idx, p_path in enumerate(photos, 1):
-                                media_group.append(InputMediaPhoto(media=FSInputFile(p_path), caption=f"Фото {idx}"))
-
+                            media_group = [InputMediaPhoto(media=FSInputFile(p), caption=f"Фото {i}") for i, p in enumerate(photos, 1)]
                             await temp_bot.send_message(
                                 chat_id=admin_id,
                                 text=f"🖼 *К черновику Дайджеста #{new_digest.id} ({digest_type}) прикреплены изображения ({len(photos)} шт.):*"
                             )
                             await temp_bot.send_media_group(chat_id=admin_id, media=media_group)
 
-                            buttons.append([InlineKeyboardButton(
-                                text="✅ Опубликовать без фото",
-                                callback_data=f"approve_digest:{new_digest.id}:no_photo"
-                            )])
-
-                            photo_buttons = []
-                            for idx in range(len(photos)):
-                                photo_buttons.append(InlineKeyboardButton(
-                                    text=f"🖼 С Фото {idx + 1}",
-                                    callback_data=f"approve_digest:{new_digest.id}:photo_{idx}"
-                                ))
-                            for i in range(0, len(photo_buttons), 2):
-                                buttons.append(photo_buttons[i:i+2])
-                        else:
-                            buttons.append([InlineKeyboardButton(
-                                text="✅ Одобрить и опубликовать",
-                                callback_data=f"approve_digest:{new_digest.id}:no_photo"
-                            )])
-
-                        buttons.append([InlineKeyboardButton(
-                            text="❌ Удалить",
-                            callback_data=f"delete_digest:{new_digest.id}"
-                        )])
-
-                        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-                        from tg_bot.publisher import split_text
+                        keyboard = get_digest_review_keyboard(new_digest.id, photos)
                         chunks = split_text(digest_content, limit=3500)
 
                         await temp_bot.send_message(
