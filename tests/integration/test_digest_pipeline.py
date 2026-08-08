@@ -234,3 +234,55 @@ async def test_run_digest_assembly_sunday_llm_fallback(db_session, redis_client,
     assert len(quizzes) == 1
     assert len(quizzes[0].questions) == 1
 
+
+async def test_digest_assembly_cutoff_filter(db_session, redis_client, mock_extractor, mocker):
+    tz = timezone(timedelta(hours=3))
+    now = datetime.now(tz)
+
+    # 1. Post older than 24 hours (2 days ago)
+    old_post = Post(
+        id=201,
+        title="Старый пост",
+        content="Пост двухдневной давности",
+        post_date=now - timedelta(days=2),
+        is_ad_or_trash=False,
+        is_tech_relevant=True,
+        tech_facts=["Старый факт"],
+        link="https://t.me/test_chan/201"
+    )
+
+    # 2. Fresh post (2 hours ago)
+    fresh_post = Post(
+        id=202,
+        title="Свежий пост",
+        content="Свежий пост за последние 24 часа",
+        post_date=now - timedelta(hours=2),
+        is_ad_or_trash=False,
+        is_tech_relevant=True,
+        tech_facts=["Свежий факт"],
+        link="https://t.me/test_chan/202"
+    )
+
+    db_session.add_all([old_post, fresh_post])
+    await db_session.commit()
+
+    mocker.patch.object(mock_extractor, "call_llm", return_value=("Дайджест только из свежих постов", 100))
+
+    pipeline = DigestPipeline(
+        tg_sources=[],
+        tg_parser=None,
+        extractor=mock_extractor,
+        db_session=db_session,
+        redis_client=redis_client
+    )
+
+    await pipeline.run_digest_assembly_job(digest_type="tech", is_sunday_quiz=False)
+
+    # Verify only fresh_post got assigned to digest
+    updated_old = await db_session.get(Post, old_post.id)
+    updated_fresh = await db_session.get(Post, fresh_post.id)
+
+    assert updated_old.tech_digest_id is None, "Старый пост не должен входить в дайджест"
+    assert updated_fresh.tech_digest_id is not None, "Свежий пост должен войти в дайджест"
+
+
