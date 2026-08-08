@@ -1,18 +1,20 @@
+"""Планировщик задач (Scheduler) ежедневного сбора постов, формирования дайджестов и снимков метрик."""
+
 import asyncio
 import logging
-import os
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-import redis.asyncio as redis
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from core.config import get_settings
+from core.database import get_async_engine, get_session_factory, get_db_session
+from core.redis import get_redis_client
+from services.pipeline import DigestPipeline
 from .telegram_parser import TGParser
 from .llm_layer import MessageExtractor
-from .post_extractor import DigestPipeline
 from .prompts import post_schema
 from .sources import TG_SOURCES
 
@@ -26,63 +28,33 @@ logger = logging.getLogger(__name__)
 
 
 async def run_daily_digest_cycle():
-    """Ежедневный полный цикл: Парсинг TG -> LLM-обработка постов -> Сборка и публикация дайджеста (с квизом по воскресеньям)."""
+    """Ежедневный полный цикл: Парсинг TG -> LLM-обработка постов -> Сборка и публикация дайджеста."""
     logger.info("Запуск ежедневного цикла парсинга, обработки LLM и сборки дайджеста...")
+    settings = get_settings()
     try:
-        db_user = os.getenv("DB_USER")
-        db_pass = os.getenv("DB_PASSWORD")
-        db_name = os.getenv("DB_NAME")
-        db_host = os.getenv("DB_HOST", "localhost")
-        db_port = os.getenv("DB_PORT", "5432")
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_pass = os.getenv("REDIS_PASSWORD")
-        proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
-        proxy_port = int(os.getenv("PROXY_PORT", 1080))
-        
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-        engine = create_async_engine(db_url, echo=False)
-        AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-        
-        redis_client = redis.Redis(
-            host=redis_host, 
-            port=6379, 
-            password=redis_pass, 
-            decode_responses=True 
-        )
-        
-        download_media = os.getenv("DOWNLOAD_MEDIA", "False").lower() in ("true", "1", "yes")
-        
-        tg_api_id = int(os.getenv("TELEGRAM_API_ID"))
-        tg_api_hash = os.getenv("TELEGRAM_API_HASH")
-        openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        
+        engine = get_async_engine()
+        session_factory = get_session_factory(engine)
+        redis_client = get_redis_client()
+
         tg_parser = TGParser(
-            api_id=tg_api_id, 
-            api_hash=tg_api_hash,
-            proxy_host=proxy_host,
-            proxy_port=proxy_port,
-            download_media=download_media
+            api_id=settings.telegram_api_id,
+            api_hash=settings.telegram_api_hash,
+            proxy_host=settings.proxy_host,
+            proxy_port=settings.proxy_port,
+            download_media=settings.download_media
         )
-        
-        cheap_model = os.getenv("LLM_CHEAP_MODEL", "google/gemini-2.5-flash")
-        expensive_model = os.getenv("LLM_EXPENSIVE_MODEL", "deepseek/deepseek-v4-pro")
-        proxy_url = f"socks5://{proxy_host}:{proxy_port}" if proxy_host else None
 
         extractor = MessageExtractor(
-            model_names=[cheap_model, expensive_model], 
-            api_keys=[openrouter_key],
-            proxy=proxy_url
+            model_names=[settings.llm_cheap_model, settings.llm_expensive_model],
+            api_keys=[settings.openrouter_api_key],
+            proxy=settings.proxy_url
         )
-        
-        max_posts_env = os.getenv("MAX_POSTS_TO_PROCESS_LLM")
-        max_posts = int(max_posts_env) if max_posts_env else None
 
-        from datetime import timedelta, timezone
         moscow_tz = timezone(timedelta(hours=3))
         now_moscow = datetime.now(moscow_tz)
         is_sunday = (now_moscow.weekday() == 6)
-        
-        async with AsyncSessionLocal() as session:
+
+        async with session_factory() as session:
             pipeline = DigestPipeline(
                 tg_sources=TG_SOURCES,
                 tg_parser=tg_parser,
@@ -90,21 +62,25 @@ async def run_daily_digest_cycle():
                 db_session=session,
                 redis_client=redis_client
             )
-            
+
             # 1. Parsing TG
             await pipeline.run_parsing_job()
 
-            # 2. LLM Processing of unprocessed posts
-            await pipeline.run_llm_processing_job(schema=post_schema, max_posts=max_posts, model_name=cheap_model)
+            # 2. LLM Processing
+            await pipeline.run_llm_processing_job(
+                schema=post_schema,
+                max_posts=settings.max_posts_to_process_llm,
+                model_name=settings.llm_cheap_model
+            )
 
-            # 3. Assemble Daily Digest (tech & simple) with weekly Quiz selection on Sunday
+            # 3. Assemble Daily Digest (tech & simple)
             try:
                 logger.info("Запуск сборки tech-дайджеста...")
                 await pipeline.run_digest_assembly_job(
                     digest_type="tech",
                     is_sunday_quiz=is_sunday,
                     max_posts_in_digest=None,
-                    model_name=expensive_model
+                    model_name=settings.llm_expensive_model
                 )
             except Exception as tech_err:
                 logger.error(f"Ошибка при сборке tech-дайджеста: {tech_err}", exc_info=True)
@@ -115,11 +91,11 @@ async def run_daily_digest_cycle():
                     digest_type="simple",
                     is_sunday_quiz=is_sunday,
                     max_posts_in_digest=None,
-                    model_name=expensive_model
+                    model_name=settings.llm_expensive_model
                 )
             except Exception as simple_err:
                 logger.error(f"Ошибка при сборке simple-дайджеста: {simple_err}", exc_info=True)
-            
+
         today = now_moscow.date().isoformat()
         await redis_client.set("parser:last_daily_digest_date", today, ex=172800)
         logger.info(f"Ежедневный цикл за {today} (is_sunday={is_sunday}) успешно завершен и записан в стейт Redis")
@@ -134,35 +110,19 @@ async def run_daily_digest_cycle():
 async def run_metrics_snapshot():
     logger.info("Запуск сбора метрик базы данных...")
     try:
-        db_user = os.getenv("DB_USER")
-        db_pass = os.getenv("DB_PASSWORD")
-        db_name = os.getenv("DB_NAME")
-        db_host = os.getenv("DB_HOST", "localhost")
-        db_port = os.getenv("DB_PORT", "5432")
-        
-        db_url = f"postgresql+asyncpg://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-        engine = create_async_engine(db_url, echo=False)
-        AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-        
-        async with AsyncSessionLocal() as session:
-            # 1. Users count
+        async with get_db_session() as session:
             total_users = await session.scalar(select(func.count(User.id))) or 0
-            
-            # 2. Answers stats
             total_answers = await session.scalar(select(func.count(UserAnswer.id))) or 0
             correct_answers = await session.scalar(select(func.count(UserAnswer.id)).where(UserAnswer.is_correct == True)) or 0
             accuracy_rate = (correct_answers / total_answers * 100) if total_answers > 0 else 0.0
-            
-            # 3. Posts stats
+
             total_posts = await session.scalar(select(func.count(Post.id))) or 0
             ad_trash_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash == True)) or 0
             clean_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash == False)) or 0
             unprocessed_posts = await session.scalar(select(func.count(Post.id)).where(Post.is_ad_or_trash.is_(None))) or 0
-            
-            # 4. Digest count
+
             total_digests = await session.scalar(select(func.count(Digest.id))) or 0
-            
-            # 5. Token consumption
+
             post_tokens = await session.scalar(select(func.sum(Post.tokens))) or 0
             digest_tokens = await session.scalar(select(func.sum(Digest.total_tokens))) or 0
             total_tokens = (post_tokens or 0) + (digest_tokens or 0)
@@ -185,30 +145,18 @@ async def run_metrics_snapshot():
                     "metric_tokens_total": total_tokens,
                 }
             )
-
-        await engine.dispose()
     except Exception as e:
         logger.error(f"Ошибка во время сбора метрик: {e}", exc_info=True)
 
 
 async def check_and_catchup():
-    """Проверяет по ключам в редисе, выполнялся ли сегодня ежедневный цикл, и запускает catch-up при необходимости."""
     logger.info("Проверка необходимости catch-up...")
     try:
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_pass = os.getenv("REDIS_PASSWORD")
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=6379,
-            password=redis_pass,
-            decode_responses=True
-        )
-        
-        from datetime import timedelta, timezone
+        redis_client = get_redis_client()
         moscow_tz = timezone(timedelta(hours=3))
         now_moscow = datetime.now(moscow_tz)
         today = now_moscow.date().isoformat()
-        
+
         last_daily_digest_date = await redis_client.get("parser:last_daily_digest_date")
         if not last_daily_digest_date:
             last_daily_digest_date = await redis_client.get("parser:last_success_date")
@@ -220,24 +168,17 @@ async def check_and_catchup():
             asyncio.create_task(run_daily_digest_cycle())
         else:
             logger.info(f"Ежедневный цикл на сегодня ({today}) уже был успешно выполнен ранее.")
-            
+
     except Exception as e:
         logger.error(f"Ошибка при проверке catch-up: {e}", exc_info=True)
 
 
 async def main():
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    # Initialize structured JSON logging
     setup_json_logging(service_name="ai-quiz-bot-scheduler")
-    
-    # Run catch-up check asynchronously on startup
     await check_and_catchup()
-    
+
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    
-    # Daily Telegram parsing, LLM processing and digest assembly at 17:00 MSK
+
     scheduler.add_job(
         run_daily_digest_cycle,
         trigger=CronTrigger(hour=17, minute=0, timezone="Europe/Moscow"),
@@ -247,8 +188,7 @@ async def main():
         max_instances=1,
         misfire_grace_time=3600,
     )
-    
-    # Daily DB metrics snapshot at 0:05 am Moscow time
+
     scheduler.add_job(
         run_metrics_snapshot,
         trigger=CronTrigger(hour=0, minute=5, timezone="Europe/Moscow"),
@@ -258,18 +198,17 @@ async def main():
         max_instances=1,
         misfire_grace_time=3600,
     )
-    
+
     scheduler.start()
     logger.info("Scheduler started.")
     logger.info("Next Daily Digest cycle run: %s", scheduler.get_job("daily_digest_cycle_job").next_run_time)
     logger.info("Next DB metrics snapshot run: %s", scheduler.get_job("db_metrics_snapshot_job").next_run_time)
 
-    
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop_event.set)
-        
+
     await stop_event.wait()
     logger.info("Shutdown signal received, stopping scheduler...")
     scheduler.shutdown(wait=True)
