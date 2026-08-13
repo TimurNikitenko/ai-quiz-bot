@@ -149,11 +149,12 @@ class MessageExtractor:
                         parsed_response = raw_response.parse()
                 else:
                     raise
-                if not getattr(parsed_response, "choices", None):
-                    logger.error(
-                        f"Operouter не вернул choices, меняем модель. Ответ: {parsed_response}"
-                    )
-                res = parsed_response.choices[0].message.content or ""
+
+            if not getattr(parsed_response, "choices", None):
+                logger.error(
+                    f"OpenRouter не вернул choices. Ответ: {parsed_response}"
+                )
+            res = parsed_response.choices[0].message.content or ""
 
             try:
                 res = "".join(
