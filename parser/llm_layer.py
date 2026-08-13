@@ -103,25 +103,52 @@ class MessageExtractor:
                 "response_format": response_format
             }
 
-            with httpx.Client(proxy=self.proxy) as http_client:
-                client = OpenAI(
-                    base_url="https://openrouter.ai/api/v1",
-                    api_key=working_key,
-                    http_client=http_client,
-                    max_retries=0,
-                    default_headers={
-                        "HTTP-Referer": "https://github.com/",
-                        "X-Title": "MessageExtractor",
-                    },
-                )
-                start_time = time.time()
+            client_kwargs = {}
+            if self.proxy and isinstance(self.proxy, str) and self.proxy.strip():
+                client_kwargs["proxy"] = self.proxy.strip()
 
-                raw_response = client.chat.completions.with_raw_response.create(
-                    **api_kwargs
-                )
-                latency = round(time.time() - start_time, 2)
+            try:
+                with httpx.Client(**client_kwargs) as http_client:
+                    client = OpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=working_key,
+                        http_client=http_client,
+                        max_retries=0,
+                        default_headers={
+                            "HTTP-Referer": "https://github.com/",
+                            "X-Title": "MessageExtractor",
+                        },
+                    )
+                    start_time = time.time()
 
-                parsed_response = raw_response.parse()
+                    raw_response = client.chat.completions.with_raw_response.create(
+                        **api_kwargs
+                    )
+                    latency = round(time.time() - start_time, 2)
+                    parsed_response = raw_response.parse()
+            except (httpx.ProxyError, httpx.ConnectError, httpx.InvalidURL) as proxy_err:
+                if client_kwargs:
+                    logger.warning(f"Прокси {self.proxy} недоступен ({proxy_err}). Выполняем прямое подключение без прокси...")
+                    with httpx.Client() as http_client:
+                        client = OpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=working_key,
+                            http_client=http_client,
+                            max_retries=0,
+                            default_headers={
+                                "HTTP-Referer": "https://github.com/",
+                                "X-Title": "MessageExtractor",
+                            },
+                        )
+                        start_time = time.time()
+
+                        raw_response = client.chat.completions.with_raw_response.create(
+                            **api_kwargs
+                        )
+                        latency = round(time.time() - start_time, 2)
+                        parsed_response = raw_response.parse()
+                else:
+                    raise
                 if not getattr(parsed_response, "choices", None):
                     logger.error(
                         f"Operouter не вернул choices, меняем модель. Ответ: {parsed_response}"
