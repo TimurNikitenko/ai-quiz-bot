@@ -16,6 +16,7 @@ from tg_bot.handlers import (
     review_router,
     admin_review_router,
     comments_router,
+    assessment_router,
 )
 from utils.logger import setup_json_logging
 
@@ -48,6 +49,7 @@ async def main():
     await bot.set_my_commands([
         BotCommand(command="start", description="Запустить бота / Приветствие"),
         BotCommand(command="help", description="Справка по командам и возможностям"),
+        BotCommand(command="assess", description="Оценить форматы дайджестов (1-5 звезд)"),
         BotCommand(command="leaderboard", description="Показать рейтинг участников"),
         BotCommand(command="review", description="Работа над ошибками (до 5 вопросов)"),
     ])
@@ -63,6 +65,7 @@ async def main():
     dp.include_router(review_router)
     dp.include_router(admin_review_router)
     dp.include_router(comments_router)
+    dp.include_router(assessment_router)
 
     logger.info("Бот запущен и готов ловить ответы!")
     await dp.start_polling(bot)

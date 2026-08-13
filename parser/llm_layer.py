@@ -206,7 +206,7 @@ class MessageExtractor:
  
 
     def build_message_extraction_prompt(
-        self, text: str, url: str = "", reference_date=None, digest=False, has_quiz=False, digest_type: str = "tech"
+        self, text: str, url: str = "", reference_date=None, digest=False, has_quiz=False, digest_type: str = "tech", format_variant: str = "standard_grouped"
     ) -> str:
         if isinstance(reference_date, datetime.datetime):
             ref_str = reference_date.strftime("%Y-%m-%d (%A)")
@@ -220,10 +220,8 @@ class MessageExtractor:
                 post_text=text
             )
         else:
-            if digest_type == "simple":
-                prompt = simple_digest_assembly_prompt_template.format(raw_facts=text)
-            else:
-                prompt = digest_assembly_prompt_template.format(raw_facts=text)
+            from prompts.builders import build_digest_prompt
+            prompt = build_digest_prompt(facts_text=text, digest_type=digest_type, format_variant=format_variant)
         return prompt
 
     def build_weekly_quiz_selection_prompt(self, candidate_questions: list[dict]) -> str:

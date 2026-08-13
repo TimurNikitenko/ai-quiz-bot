@@ -5,6 +5,9 @@ from prompts.templates import (
     POST_PROMPT_TEMPLATE as post_prompt_template,
     DIGEST_ASSEMBLY_PROMPT_TEMPLATE as digest_assembly_prompt_template,
     SIMPLE_DIGEST_ASSEMBLY_PROMPT_TEMPLATE as simple_digest_assembly_prompt_template,
+    SIMPLE_DIGEST_MICRO_TLDR_TEMPLATE as simple_digest_micro_tldr_template,
+    SIMPLE_DIGEST_TLDR_PLUS_TEMPLATE as simple_digest_tldr_plus_template,
+    SIMPLE_DIGEST_BULLET_FEED_TEMPLATE as simple_digest_bullet_feed_template,
     WEEKLY_QUIZ_SELECTION_PROMPT as weekly_quiz_selection_prompt,
 )
 from prompts.builders import (

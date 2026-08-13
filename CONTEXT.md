@@ -124,7 +124,12 @@ flowchart TD
    - When quiz flag is active (`is_sunday_quiz=True`), collects lookback questions and calls LLM to select up to N questions (configurable, defaults to 5) using `WeeklyQuizSchema.to_dict_schema()`.
    - Creates `Digest` and `Quiz` records in DB.
 
-4. **Publishing (`DigestPublisherService`)**:
+4. **Digest Format Experimentation & Assessment (`DigestAssessment`)**:
+   - **Target Audience**: `simple` (Popular/Managerial Digest).
+   - **Format Variants**: `micro_tldr` (1-min read, 3 items), `tldr_plus_highlights` (hybrid top TL;DR + details), `standard_grouped` (grouped category headers), `bullet_feed` (flat skimmable bullet list).
+   - **Assessment Model (`DigestAssessment`)**: Stores colleague 1–5 star ratings, optional text feedback, and user IDs for each format variant presented via interactive bot commands.
+
+5. **Publishing (`DigestPublisherService`)**:
    - Routes publishing to target channels (configured via `CHANNEL_ID_TECH` or `CHANNEL_ID_SIMPLE`, with fallback to `CHANNEL_ID`).
    - Converts Markdown to HTML using `markdown_to_html()`.
    - Splits long text using `split_text()` (configurable limit, defaults to 3500 characters).
