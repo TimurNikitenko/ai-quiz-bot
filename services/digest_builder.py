@@ -302,3 +302,97 @@ class DigestBuilderService:
             logger.error(f"Ошибка при сборке дайджеста: {e}")
             await self.db_session.rollback()
             return None
+
+    async def run_experiment_digest_assembly_job(
+        self,
+        variants: Optional[List[str]] = None,
+        model_name: Optional[str] = None
+    ) -> List[Digest]:
+        """Генерирует варианты дайджеста для экспериментов из одних и тех же фактов."""
+        if variants is None:
+            variants = ["micro_tldr", "tldr_plus_highlights", "standard_grouped", "bullet_feed"]
+
+        logger.info(f"Запуск джобы сборки экспериментальных дайджестов (варианты: {variants})...")
+        cutoff_date = await self._get_cutoff_date("simple")
+        stmt = select(Post).where(
+            or_(
+                Post.is_simple_relevant == True,
+                and_(Post.is_ad_or_trash == False, Post.is_simple_relevant.is_(None))
+            ),
+            Post.post_date >= cutoff_date
+        ).order_by(Post.post_date.desc()).limit(15)
+
+        result = await self.db_session.execute(stmt)
+        ready_posts = result.scalars().all()
+
+        if not ready_posts:
+            # Fallback: get recent posts without cutoff filter if cutoff yields none
+            stmt_fallback = select(Post).where(
+                Post.is_ad_or_trash == False
+            ).order_by(Post.post_date.desc()).limit(15)
+            ready_posts = (await self.db_session.execute(stmt_fallback)).scalars().all()
+
+        if not ready_posts:
+            logger.info("Нет постов для экспериментальной сборки дайджестов.")
+            return []
+
+        all_facts = []
+        for post in ready_posts:
+            p_facts = post.simple_facts or post.facts or []
+            for fact in p_facts:
+                all_facts.append(f"{fact} [Источник]({post.link})")
+
+        if not all_facts:
+            logger.warning("У выбранных постов отсутствуют факты.")
+            return []
+
+        facts_text = "\n\n".join([f"• {fact}" for fact in all_facts])
+        created_digests = []
+
+        models_to_try = []
+        if model_name:
+            models_to_try.append(model_name)
+        for fallback_m in self.extractor.model_names:
+            if fallback_m not in models_to_try:
+                models_to_try.append(fallback_m)
+
+        for variant in variants:
+            prompt = self.extractor.build_message_extraction_prompt(
+                text=facts_text,
+                digest=True,
+                digest_type="simple",
+                format_variant=variant
+            )
+
+            response = None
+            used_model = model_name
+            for m in models_to_try:
+                try:
+                    res = await asyncio.to_thread(
+                        self.extractor.call_llm,
+                        user_prompt=prompt,
+                        model_name=m
+                    )
+                    if res and res[0] and res[0].strip():
+                        response = res
+                        used_model = m
+                        break
+                except Exception as d_err:
+                    logger.warning(f"Модель {m} при генерации экспериментального дайджеста {variant} вернула ошибку: {d_err}")
+
+            if response and response[0]:
+                digest_content, tokens = response
+                new_digest = Digest(
+                    total_tokens=tokens,
+                    content=digest_content,
+                    facts=all_facts,
+                    digest_type=f"simple:{variant}",
+                    model_name=used_model or (self.extractor.model_names[0] if self.extractor.model_names else "google/gemini-2.5-flash")
+                )
+                self.db_session.add(new_digest)
+                created_digests.append(new_digest)
+
+        await self.db_session.commit()
+        logger.info(f"Успешно создано {len(created_digests)} экспериментальных дайджестов.")
+        return created_digests
+

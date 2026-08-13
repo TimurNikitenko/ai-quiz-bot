@@ -4,3 +4,4 @@ from .leaderboard import router as leaderboard_router
 from .review import router as review_router
 from .admin_review import router as admin_review_router
 from .comments import router as comments_router
+from .assessment import router as assessment_router

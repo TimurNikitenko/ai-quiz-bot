@@ -5,3 +5,4 @@ from models.quiz import Quiz as Quiz
 from models.user import User as User
 from models.user_answers import UserAnswer as UserAnswer    
 from models.poll_mapping import PollMapping as PollMapping
+from models.digest_assessment import DigestAssessment as DigestAssessment
